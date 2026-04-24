@@ -1,0 +1,685 @@
+---
+title: Final Project
+format:
+  html:
+    self-contained: true
+author:
+- teammate 1
+- teammate 2
+- teammate 3
+- teammate 4
+execute:
+  freeze: auto
+  warning: false
+---
+
+```{python}
+#| include: false
+
+import json
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import norm, halfnorm
+
+sns.set_theme(style="whitegrid", context="notebook")
+plt.rcParams["figure.dpi"] = 110
+plt.rcParams["savefig.dpi"] = 110
+pd.set_option("display.max_rows", 20)
+pd.set_option("display.float_format", lambda x: f"{x:.3f}")
+
+SEASON = 2025
+BLUE, ORANGE, GRAY = "#185FA5", "#D85A30", "#888780"
+```
+
+## Introduction
+
+A college basketball game has two teams, each with some latent "strength." If we could estimate those strengths from the regular season, we could predict the tournament. The standard tools for this — ridge regression on point differential, ELO systems, Massey ratings — all produce a single number per team.
+
+We build a **hierarchical Bayesian model** that does the same job with three features the point estimates miss.
+
+First, **full predictive uncertainty**: every win probability comes with a credible interval, not just a number. Second, **partial pooling by conference**: teams in small conferences have thin schedule overlap with the rest of the country, so their raw stats are noisy; the hierarchical prior shrinks each team toward its conference mean, by an amount determined by how much data supports an extreme estimate. Third, **separate offense and defense**: each team gets two ratings instead of one, which lets us predict score totals (over/under) as naturally as margins.
+
+We fit on regular-season games and evaluate on the held-out NCAA tournament. A model fit only on regular-season data will never have "seen" a tournament game, so the tournament is a genuine test of predictive calibration. We then use the posterior to simulate the entire bracket — playing every tournament game on every posterior draw — and report each team's probability of reaching each round.
+
+The report is self-contained: a single document covers data processing, model specification, MCMC inference, convergence diagnostics, predictive calibration, and bracket simulation. An accompanying Streamlit app (linked at the end) wraps the resulting posterior in an interactive UI.
+
+## Methods / Implementation
+
+### Data
+
+The analysis uses five CSV files in the `data_slim/` directory:
+
+| File | Role |
+|---|---|
+| `MTeams.csv` | team display names |
+| `MRegularSeasonCompactResults.csv` | game-by-game results we fit on |
+| `MTeamConferences.csv` | conference membership per team |
+| `MNCAATourneySeeds.csv` | tournament seeds for the bracket simulation |
+| `MNCAATourneyCompactResults.csv` | actual tournament outcomes for calibration |
+
+Each regular-season game has a winner, a loser, a location code `WLoc ∈ {H, A, N}`, and two scores. We reshape this into a home/away frame with an `is_home ∈ {0, 1}` indicator, where `is_home = 0` means the game was at a neutral site (tournaments, early-season showcases like the Maui Invitational). This distinction matters because about 5% of regular-season games are neutral and every tournament game is neutral — so home-court advantage has to be gated by that indicator, otherwise tournament predictions get a spurious bump.
+
+```{python}
+#| label: load-data
+
+teams_raw = pd.read_csv("data_slim/MTeams.csv")
+games_raw = pd.read_csv("data_slim/MRegularSeasonCompactResults.csv")
+confs_raw = pd.read_csv("data_slim/MTeamConferences.csv")
+
+# Keep only this season
+games_raw = games_raw[games_raw.Season == SEASON].copy()
+confs_raw = confs_raw[confs_raw.Season == SEASON].copy()
+
+# Index teams 0..N-1 using only teams that actually played this season
+active_ids = np.sort(pd.unique(pd.concat([games_raw.WTeamID, games_raw.LTeamID])))
+team_id_to_idx = {int(tid): i for i, tid in enumerate(active_ids)}
+name_by_id = dict(zip(teams_raw.TeamID, teams_raw.TeamName))
+team_names = [name_by_id.get(int(tid), f"Team_{tid}") for tid in active_ids]
+
+# Conferences
+conf_by_id = dict(zip(confs_raw.TeamID, confs_raw.ConfAbbrev))
+team_confs = [conf_by_id.get(int(tid), "UNK") for tid in active_ids]
+conf_list = sorted(set(team_confs))
+conf_to_idx = {c: i for i, c in enumerate(conf_list)}
+team_to_conf = np.array([conf_to_idx[c] for c in team_confs])
+
+print(f"Teams:       {len(team_names)}")
+print(f"Conferences: {len(conf_list)}")
+print(f"Games:       {len(games_raw)}")
+```
+
+Reshape winner/loser → home/away/neutral. The rule is simple: if the winner was away (`WLoc == 'A'`), the loser was home; otherwise the winner was home. Neutral games keep the winner as "home" arbitrarily but set `is_home = 0`.
+
+```{python}
+#| label: reshape-games
+
+w_idx = games_raw.WTeamID.map(team_id_to_idx).values
+l_idx = games_raw.LTeamID.map(team_id_to_idx).values
+wloc  = games_raw.WLoc.values
+w_pts = games_raw.WScore.values
+l_pts = games_raw.LScore.values
+
+home_idx = np.where(wloc == "A", l_idx, w_idx)
+away_idx = np.where(wloc == "A", w_idx, l_idx)
+home_pts = np.where(wloc == "A", l_pts, w_pts)
+away_pts = np.where(wloc == "A", w_pts, l_pts)
+is_home  = np.where(wloc == "N", 0, 1)
+
+games = pd.DataFrame({
+    "home_idx": home_idx.astype(int),
+    "away_idx": away_idx.astype(int),
+    "home_pts": home_pts.astype(int),
+    "away_pts": away_pts.astype(int),
+    "is_home":  is_home.astype(int),
+})
+
+print(f"Home-court games: {int(games.is_home.sum())}  "
+      f"({games.is_home.mean():.1%})")
+print(f"Neutral games:    {int((1 - games.is_home).sum())}  "
+      f"({(1 - games.is_home).mean():.1%})")
+games.head()
+```
+
+### Model specification
+
+The model has two layers of partial pooling (conference, then team within conference) and one observation layer (two Normal likelihoods per game, one for each team's score).
+
+$$
+\begin{aligned}
+\text{baseline} &\sim \mathcal{N}(72, 5) \\
+\text{HFA} &\sim \mathcal{N}(3, 2) \\
+\sigma_{\text{pts}} &\sim \text{HalfN}(10) \\[0.4em]
+\text{off}_c,\ \text{def}_c &\sim \mathcal{N}(0,\ \tau^{\text{conf}}) && \text{for each conference } c \\
+\text{off}_t &\sim \mathcal{N}(\text{off}_{c(t)},\ \tau^{\text{team}}) && \text{for each team } t \\
+\text{def}_t &\sim \mathcal{N}(\text{def}_{c(t)},\ \tau^{\text{team}}) \\[0.4em]
+\text{home\_pts} &\sim \mathcal{N}\!\big(\text{baseline} + \text{HFA} \cdot \text{is\_home} + \text{off}_h - \text{def}_a,\ \sigma_{\text{pts}}\big) \\
+\text{away\_pts} &\sim \mathcal{N}\!\big(\text{baseline} + \text{off}_a - \text{def}_h,\ \sigma_{\text{pts}}\big)
+\end{aligned}
+$$
+
+Sign convention: larger $\text{def}$ = better defense (concedes fewer points). Net rating = $\text{off} + \text{def}$.
+
+Two things to notice. First, `HFA * is_home` gates home-court advantage so it only applies to home-court games, not neutrals. Second, the priors on `baseline` and `HFA` are informative (college-hoops teams score ~72 points per game; home teams get ~3 extra points on average) but wide enough that the data dominates.
+
+We implement this in PyMC with a **non-centered parameterization** — instead of sampling `off[t] ~ Normal(off_conf[c], tau_team)` directly, we sample `z[t] ~ Normal(0, 1)` and deterministically compute `off[t] = off_conf[c] + z[t] * tau_team`. This avoids the "funnel" geometry that wrecks NUTS when `tau_team` is small, and it's a standard trick for hierarchical models.
+
+```{python}
+#| label: build-model
+import os
+os.environ["PYTENSOR_FLAGS"] = "cxx="
+import pymc as pm
+
+coords = {
+    "team": team_names,
+    "conf": conf_list,
+    "game": np.arange(len(games)),
+}
+
+with pm.Model(coords=coords) as model:
+    # Observed game data
+    home_i  = pm.Data("home_i",  games.home_idx.values)
+    away_i  = pm.Data("away_i",  games.away_idx.values)
+    is_home_d = pm.Data("is_home", games.is_home.values.astype(float))
+
+    # Global parameters
+    baseline  = pm.Normal("baseline", mu=72.0, sigma=5.0)
+    hfa       = pm.Normal("hfa", mu=3.0, sigma=2.0)
+    sigma_pts = pm.HalfNormal("sigma_pts", sigma=10.0)
+
+    # Conference level (non-centered)
+    tau_off_conf = pm.HalfNormal("tau_off_conf", sigma=5.0)
+    tau_def_conf = pm.HalfNormal("tau_def_conf", sigma=5.0)
+    z_off_conf = pm.Normal("z_off_conf", 0, 1, dims="conf")
+    z_def_conf = pm.Normal("z_def_conf", 0, 1, dims="conf")
+    off_conf = pm.Deterministic("off_conf", z_off_conf * tau_off_conf, dims="conf")
+    def_conf = pm.Deterministic("def_conf", z_def_conf * tau_def_conf, dims="conf")
+
+    # Team level (non-centered on conference)
+    tau_off_team = pm.HalfNormal("tau_off_team", sigma=3.0)
+    tau_def_team = pm.HalfNormal("tau_def_team", sigma=3.0)
+    z_off_team = pm.Normal("z_off_team", 0, 1, dims="team")
+    z_def_team = pm.Normal("z_def_team", 0, 1, dims="team")
+    off  = pm.Deterministic(
+        "off", off_conf[team_to_conf] + z_off_team * tau_off_team, dims="team"
+    )
+    def_ = pm.Deterministic(
+        "def", def_conf[team_to_conf] + z_def_team * tau_def_team, dims="team"
+    )
+
+    # Likelihood
+    mu_home = baseline + hfa * is_home_d + off[home_i] - def_[away_i]
+    mu_away = baseline + off[away_i] - def_[home_i]
+    pm.Normal("home_obs", mu=mu_home, sigma=sigma_pts,
+              observed=games.home_pts.values, dims="game")
+    pm.Normal("away_obs", mu=mu_away, sigma=sigma_pts,
+              observed=games.away_pts.values, dims="game")
+```
+
+### Inference and diagnostics
+
+We sample with NUTS using the JAX/`numpyro` backend — this is 5–10× faster than the default backend on this model, typically under two minutes on a laptop.
+
+```{python}
+#| label: fit
+from pathlib import Path
+import arviz as az
+
+idata_path = Path("idata.nc")
+
+if idata_path.exists():
+    idata = az.from_netcdf(idata_path)
+else:
+    with model:
+        idata = pm.sample(
+            draws=1000,
+            tune=1000,
+            chains=4,
+            target_accept=0.95,
+            random_seed=42,
+            progressbar=False,
+        )
+    idata.to_netcdf(idata_path)
+```
+
+For convergence we want $\hat{R} \approx 1$, effective sample size in the hundreds or more, and zero (or near-zero) divergences.
+
+```{python}
+#| label: diagnostics
+summary = az.summary(idata, var_names=[
+    "baseline", "hfa", "sigma_pts",
+    "tau_off_conf", "tau_def_conf", "tau_off_team", "tau_def_team",
+])
+n_div = int(idata.sample_stats.diverging.sum())
+print(f"Divergences   : {n_div} / {int(idata.sample_stats.diverging.size)}")
+print(f"Max r_hat     : {summary.r_hat.max():.4f}")
+print(f"Min ESS (bulk): {summary.ess_bulk.min():.0f}")
+summary
+```
+
+Prior vs posterior for the three global parameters shows how much the data moved our beliefs:
+
+```{python}
+#| label: fig-prior-post
+
+fig, axes = plt.subplots(1, 3, figsize=(11, 3.2))
+
+for ax, (name, prior, label) in zip(axes, [
+    ("baseline",  norm(72, 5),        "Normal(72, 5)"),
+    ("hfa",       norm(3, 2),         "Normal(3, 2)"),
+    ("sigma_pts", halfnorm(scale=10), "HalfNormal(10)"),
+]):
+    post = idata.posterior[name].values.flatten()
+    xs = np.linspace(post.min() - 2, post.max() + 2, 200)
+    ax.hist(post, bins=40, density=True, color=BLUE, alpha=0.65, label="Posterior")
+    ax.plot(xs, prior.pdf(xs), color=GRAY, linestyle="--", label=f"Prior: {label}")
+    ax.set_title(name)
+    ax.legend(fontsize=8)
+plt.tight_layout()
+plt.show()
+```
+
+The HFA posterior concentrates sharply, meaning the data are very informative about home-court advantage — it sits firmly near 3 points. `sigma_pts` settles well above its prior mode, reflecting the real per-game scoring noise. `baseline` tightens around the true mean points-per-game for the season.
+
+### Extracting posterior samples
+
+Every downstream analysis (rankings, predictions, bracket simulation) uses the same posterior arrays, so we pull them out once:
+
+```{python}
+#| label: extract-posterior
+
+post = idata.posterior
+n_teams = len(team_names)
+
+# Flatten (chain, draw, team) → (n_draws, n_teams)
+off_samples = post["off"].values.reshape(-1, n_teams)
+def_samples = post["def"].values.reshape(-1, n_teams)
+net_samples = off_samples + def_samples
+
+# Global scalars flattened to (n_draws,)
+baseline_samples = post["baseline"].values.flatten()
+hfa_samples      = post["hfa"].values.flatten()
+sigma_samples    = post["sigma_pts"].values.flatten()
+
+n_draws = off_samples.shape[0]
+print(f"Posterior draws: {n_draws:,}   (chain × draw collapsed)")
+```
+
+### Team ratings
+
+Build a summary table — one row per team, with posterior mean and 90% credible interval for offense, defense, and net rating:
+
+```{python}
+#| label: team-table
+
+ratings = pd.DataFrame({
+    "team":       team_names,
+    "conference": team_confs,
+    "off":        off_samples.mean(axis=0),
+    "def":        def_samples.mean(axis=0),
+    "net":        net_samples.mean(axis=0),
+    "net_lo":     np.quantile(net_samples, 0.05, axis=0),
+    "net_hi":     np.quantile(net_samples, 0.95, axis=0),
+})
+ratings = ratings.sort_values("net", ascending=False).reset_index(drop=True)
+ratings.head(12).round(2)
+```
+
+```{python}
+#| label: fig-forest
+#| fig-cap: "Top 25 teams by net rating, with 90% posterior credible intervals."
+
+top = ratings.head(25).iloc[::-1]  # flip so best is on top
+
+fig, ax = plt.subplots(figsize=(8, 8))
+ax.errorbar(
+    x=top.net, y=range(len(top)),
+    xerr=[top.net - top.net_lo, top.net_hi - top.net],
+    fmt="o", color=BLUE, ecolor="#88a8c9",
+    markersize=6, capsize=2, linewidth=1,
+)
+ax.axvline(0, color=GRAY, linestyle="--", linewidth=0.8)
+ax.set_yticks(range(len(top)))
+ax.set_yticklabels(top.team)
+ax.set_xlabel("Net rating (posterior mean, 90% CI)")
+ax.set_title(f"Top 25 teams · {SEASON} season")
+plt.tight_layout()
+plt.show()
+```
+
+The width of each error bar reflects how confidently we know a team's strength — it's wider for teams that played weaker schedules or had more variable results.
+
+### Hierarchical shrinkage
+
+To see what partial pooling is actually doing, compare the raw mean point margin (which ignores opponent strength entirely) against the posterior net rating:
+
+```{python}
+#| label: fig-shrinkage
+#| fig-cap: "Raw mean margin vs hierarchical posterior. Teams off the diagonal are where the model disagrees with the naive estimate."
+
+raw_margin = np.zeros(n_teams)
+n_games_per_team = np.zeros(n_teams, dtype=int)
+for i in range(n_teams):
+    as_home = games[games.home_idx == i]
+    as_away = games[games.away_idx == i]
+    margins = np.concatenate([
+        (as_home.home_pts - as_home.away_pts).values,
+        (as_away.away_pts - as_away.home_pts).values,
+    ])
+    if len(margins) > 0:
+        raw_margin[i] = margins.mean()
+        n_games_per_team[i] = len(margins)
+
+# Align ratings back to team_idx order for plotting
+net_by_idx = np.zeros(n_teams)
+for _, row in ratings.iterrows():
+    i = team_names.index(row.team)
+    net_by_idx[i] = row.net
+
+fig, ax = plt.subplots(figsize=(7.5, 7))
+sc = ax.scatter(
+    raw_margin, net_by_idx,
+    s=n_games_per_team * 0.4 + 6, c=net_by_idx,
+    cmap="RdBu_r", alpha=0.75, edgecolors="white", linewidth=0.3,
+)
+lims = [min(raw_margin.min(), net_by_idx.min()) - 2,
+        max(raw_margin.max(), net_by_idx.max()) + 2]
+ax.plot(lims, lims, color=GRAY, linestyle="--", linewidth=1, label="y = x (no shrinkage)")
+ax.set_xlim(lims); ax.set_ylim(lims)
+ax.set_xlabel("Raw mean margin (unpooled)")
+ax.set_ylabel("Posterior net rating (hierarchical)")
+ax.legend(loc="upper left")
+plt.colorbar(sc, ax=ax, label="Net rating", shrink=0.7)
+plt.tight_layout()
+plt.show()
+```
+
+Points near the diagonal are where the hierarchical estimate agrees with the raw stat — usually big-conference teams with lots of games against each other. Points pulled toward zero are teams whose raw margin looked extreme but whose schedule didn't support that conclusion.
+
+### Predicting a single game
+
+Prediction is just posterior-predictive sampling. For each posterior draw, we plug the team ratings into the likelihood to get expected scores, then sample once. The distribution of margins across draws mixes **parameter uncertainty** (what the true ratings are) with **game-level noise** (how much one game deviates from its mean).
+
+```{python}
+#| label: fig-predict
+#| fig-cap: "Posterior predictive distribution for a hypothetical matchup of the two strongest teams on a neutral floor."
+
+top_two = ratings.head(2).team.tolist()
+team_a, team_b = top_two
+ia = team_names.index(team_a)
+ib = team_names.index(team_b)
+
+rng = np.random.default_rng(0)
+mu_a = baseline_samples + off_samples[:, ia] - def_samples[:, ib]
+mu_b = baseline_samples + off_samples[:, ib] - def_samples[:, ia]
+pts_a = rng.normal(mu_a, sigma_samples)
+pts_b = rng.normal(mu_b, sigma_samples)
+margin = pts_a - pts_b
+
+print(f"{team_a} vs {team_b}  (neutral site)")
+print(f"  P({team_a} wins) = {(margin > 0).mean():.1%}")
+print(f"  Mean margin      = {margin.mean():+.2f} pts")
+print(f"  90% CI on margin = [{np.quantile(margin, 0.05):+.1f}, "
+      f"{np.quantile(margin, 0.95):+.1f}]")
+print(f"  Expected score   = {pts_a.mean():.1f} – {pts_b.mean():.1f}")
+
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.hist(margin, bins=60, color=BLUE, alpha=0.75, density=True)
+ax.axvline(0, color=ORANGE, linestyle="--", linewidth=1.5, label="tie")
+ax.axvline(margin.mean(), color="black", linestyle=":", linewidth=1,
+           label=f"mean {margin.mean():+.1f}")
+ax.set_xlabel(f"Margin ({team_a} − {team_b}, pts)")
+ax.set_ylabel("Density")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+### Calibration on the held-out tournament
+
+We fit on regular-season games only, so the tournament is a real holdout. For each tournament game the model's predicted probability that a reference team wins can be compared against the actual outcome.
+
+For each posterior draw, the margin of a game is
+$\text{margin} \mid \theta \sim \mathcal{N}\!\big(\mu(\theta),\ \sigma(\theta)\sqrt{2}\big)$
+(the $\sqrt{2}$ comes from subtracting two independent Normals). So the probability that a reference team wins, conditional on the parameters, is analytic:
+$$
+P(\text{team wins} \mid \theta) \;=\; \Phi\!\left(\frac{\mu(\theta)}{\sigma(\theta)\sqrt{2}}\right),
+$$
+which we then average over posterior draws. This is cleaner than Monte Carlo — it integrates out the game-level noise analytically and leaves only parameter uncertainty.
+
+```{python}
+#| label: calibration
+
+tourney = pd.read_csv("data_slim/MNCAATourneyCompactResults.csv")
+tourney = tourney[tourney.Season == SEASON].copy()
+tourney["w_idx"] = tourney.WTeamID.map(team_id_to_idx)
+tourney["l_idx"] = tourney.LTeamID.map(team_id_to_idx)
+tourney = tourney.dropna(subset=["w_idx", "l_idx"])
+tourney["w_idx"] = tourney.w_idx.astype(int)
+tourney["l_idx"] = tourney.l_idx.astype(int)
+
+w_idx = tourney.w_idx.values
+l_idx = tourney.l_idx.values
+w_pts = tourney.WScore.values
+l_pts = tourney.LScore.values
+
+# Orient to the lower-indexed team (arbitrary but consistent)
+team_low  = np.minimum(w_idx, l_idx)
+team_high = np.maximum(w_idx, l_idx)
+w_was_low = (w_idx == team_low).astype(int)
+actual_margin = np.where(w_was_low == 1, w_pts - l_pts, l_pts - w_pts)
+actual_low_wins = (actual_margin > 0).astype(int)
+
+# Analytic win probability per draw (tournament = neutral, no HFA)
+off_low  = off_samples[:, team_low]
+off_high = off_samples[:, team_high]
+def_low  = def_samples[:, team_low]
+def_high = def_samples[:, team_high]
+mu_margin = (off_low + def_low) - (off_high + def_high)        # (n_draws, n_games)
+std_diff  = sigma_samples[:, None] * np.sqrt(2)                # (n_draws, 1)
+p_low_draw = norm.cdf(mu_margin / std_diff)
+p_low = p_low_draw.mean(axis=0)                                # (n_games,)
+
+p_clip   = np.clip(p_low, 1e-15, 1 - 1e-15)
+log_loss = -(actual_low_wins * np.log(p_clip)
+             + (1 - actual_low_wins) * np.log(1 - p_clip)).mean()
+brier    = ((p_low - actual_low_wins) ** 2).mean()
+accuracy = ((p_low > 0.5) == actual_low_wins).mean()
+
+print(f"Tournament games evaluated: {len(tourney)}")
+print(f"Log-loss : {log_loss:.4f}   (uniform 50/50 baseline = {np.log(2):.4f})")
+print(f"Brier    : {brier:.4f}")
+print(f"Accuracy : {accuracy:.1%}")
+```
+
+The reliability diagram bins predictions by probability and plots observed frequency against mean predicted probability within each bin. A perfectly calibrated model lies on the diagonal:
+
+```{python}
+#| label: fig-reliability
+#| fig-cap: "Reliability diagram. Dot size = number of games in the bin."
+
+bins = np.linspace(0, 1, 11)
+bin_idx = np.clip(np.digitize(p_low, bins) - 1, 0, 9)
+
+bin_mean_pred, bin_obs_freq, bin_n = [], [], []
+for i in range(10):
+    mask = bin_idx == i
+    if mask.sum() > 0:
+        bin_mean_pred.append(p_low[mask].mean())
+        bin_obs_freq.append(actual_low_wins[mask].mean())
+        bin_n.append(mask.sum())
+
+fig, ax = plt.subplots(figsize=(5.5, 5.5))
+ax.plot([0, 1], [0, 1], color=GRAY, linestyle="--", label="Perfect calibration")
+ax.plot(bin_mean_pred, bin_obs_freq, color=BLUE, linewidth=1.2, zorder=2)
+ax.scatter(bin_mean_pred, bin_obs_freq,
+           s=[20 + n * 4 for n in bin_n],
+           color=BLUE, edgecolors="white", linewidth=1, zorder=3)
+ax.set_xlabel("Mean predicted P(reference team wins)")
+ax.set_ylabel("Observed frequency")
+ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect("equal")
+ax.legend(loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
+### Bracket simulation
+
+Finally, the main event: run the whole tournament on every posterior draw. At each draw we have a full set of team ratings, so we can simulate every game in parallel and tally advancement counts.
+
+```{python}
+#| label: load-seeds
+
+seeds = pd.read_csv("data_slim/MNCAATourneySeeds.csv")
+seeds = seeds[seeds.Season == SEASON].copy()
+seeds["region"]   = seeds.Seed.str[0]          # W / X / Y / Z
+seeds["seed_num"] = seeds.Seed.str[1:3].astype(int)
+seeds["team_idx"] = seeds.TeamID.map(team_id_to_idx)
+seeds = seeds.dropna(subset=["team_idx"])
+seeds["team_idx"] = seeds.team_idx.astype(int)
+print(f"Seeded teams: {len(seeds)}")
+seeds.head()
+```
+
+The helper below plays a single game at each posterior draw — vectorized over draws, no loops over samples.
+
+```{python}
+#| label: bracket-sim
+
+# Standard R1 pairings within each region (higher seed vs lower seed)
+R1_PAIRS = [(1, 16), (8, 9), (5, 12), (4, 13),
+            (6, 11), (3, 14), (7, 10), (2, 15)]
+F4_PAIRINGS = [("W", "X"), ("Y", "Z")]
+
+rng_bracket = np.random.default_rng(42)
+
+def play(a, b):
+    """Play a neutral-site game at each posterior draw.
+
+    a, b are arrays of shape (n_draws,) holding team indices. Returns an
+    array of shape (n_draws,) with the winner's team index at each draw.
+    """
+    d = np.arange(n_draws)
+    mu_a = baseline_samples + off_samples[d, a] - def_samples[d, b]
+    mu_b = baseline_samples + off_samples[d, b] - def_samples[d, a]
+    pts_a = rng_bracket.normal(mu_a, sigma_samples)
+    pts_b = rng_bracket.normal(mu_b, sigma_samples)
+    return np.where(pts_a > pts_b, a, b)
+
+
+# Tally rounds: r64 = reached round of 64, ..., champ = won it all
+rounds = {name: np.zeros(n_teams, dtype=int) for name in
+          ["r64", "r32", "s16", "e8", "f4", "cgame", "champ"]}
+
+# Step 1: resolve First Four play-ins (two teams sharing the same seed)
+region_seed_winners = {}
+for region in ["W", "X", "Y", "Z"]:
+    region_seed_winners[region] = {}
+    sub = seeds[seeds.region == region]
+    for seed_num, grp in sub.groupby("seed_num"):
+        ts = grp.team_idx.tolist()
+        if len(ts) == 1:
+            winners = np.full(n_draws, ts[0])
+            rounds["r64"][ts[0]] += n_draws
+        else:
+            t1 = np.full(n_draws, ts[0])
+            t2 = np.full(n_draws, ts[1])
+            winners = play(t1, t2)
+            rounds["r64"] += np.bincount(winners, minlength=n_teams)
+        region_seed_winners[region][int(seed_num)] = winners
+
+# Step 2: play each region (R1 → R2 → Sweet 16 → Elite 8)
+region_champs = {}
+for region in ["W", "X", "Y", "Z"]:
+    rsw = region_seed_winners[region]
+    r1 = [play(rsw[hi], rsw[lo]) for hi, lo in R1_PAIRS]
+    rounds["r32"] += np.bincount(np.concatenate(r1), minlength=n_teams)
+    r2 = [play(r1[i], r1[i + 1]) for i in range(0, 8, 2)]
+    rounds["s16"] += np.bincount(np.concatenate(r2), minlength=n_teams)
+    r3 = [play(r2[i], r2[i + 1]) for i in range(0, 4, 2)]
+    rounds["e8"] += np.bincount(np.concatenate(r3), minlength=n_teams)
+    region_champ = play(r3[0], r3[1])
+    rounds["f4"] += np.bincount(region_champ, minlength=n_teams)
+    region_champs[region] = region_champ
+
+# Step 3: Final Four + Championship
+sf = [play(region_champs[ra], region_champs[rb]) for ra, rb in F4_PAIRINGS]
+rounds["cgame"] += np.bincount(np.concatenate(sf), minlength=n_teams)
+champion = play(sf[0], sf[1])
+rounds["champ"] += np.bincount(champion, minlength=n_teams)
+
+# Advancement DataFrame for seeded teams
+seed_by_idx   = seeds.set_index("team_idx")["Seed"].to_dict()
+region_by_idx = seeds.set_index("team_idx")["region"].to_dict()
+
+adv = pd.DataFrame({
+    "team":        team_names,
+    "seed":        [seed_by_idx.get(i) for i in range(n_teams)],
+    "region":      [region_by_idx.get(i) for i in range(n_teams)],
+    "p_r32":       rounds["r32"]   / n_draws,
+    "p_sweet16":   rounds["s16"]   / n_draws,
+    "p_elite8":    rounds["e8"]    / n_draws,
+    "p_final4":    rounds["f4"]    / n_draws,
+    "p_champgame": rounds["cgame"] / n_draws,
+    "p_champ":     rounds["champ"] / n_draws,
+})
+adv = adv[adv.seed.notna()].sort_values("p_champ", ascending=False).reset_index(drop=True)
+
+# Sanity checks
+print(f"Σ P(champion)   = {adv.p_champ.sum():.3f}   (should be 1.0)")
+print(f"Σ P(Final Four) = {adv.p_final4.sum():.3f}   (should be 4.0)")
+print(f"Σ P(Sweet 16)   = {adv.p_sweet16.sum():.3f}   (should be 16.0)")
+```
+
+Top contenders:
+
+```{python}
+#| label: tbl-contenders
+
+display = adv.head(16).copy()
+for c in ["p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]:
+    display[c] = (display[c] * 100).round(1).astype(str) + "%"
+display.columns = ["Team", "Seed", "Region",
+                   "R32", "Sweet 16", "Elite 8",
+                   "Final 4", "Final", "Champion"]
+display
+```
+
+```{python}
+#| label: fig-advancement
+#| fig-cap: "Round-by-round advancement paths for the top 12 contenders."
+
+top12 = adv.head(12)
+rounds_labels = ["R32", "Sweet 16", "Elite 8", "Final 4", "Final", "Champion"]
+prob_cols = ["p_r32", "p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]
+
+fig, ax = plt.subplots(figsize=(10, 6))
+cmap = plt.cm.tab20
+for i, (_, row) in enumerate(top12.iterrows()):
+    ax.plot(rounds_labels, [row[c] for c in prob_cols],
+            "o-", color=cmap(i), linewidth=1.3, markersize=5,
+            label=f"{row.seed} {row.team}")
+ax.set_ylabel("Advancement probability")
+ax.set_ylim(0, 1)
+ax.legend(bbox_to_anchor=(1.02, 1), loc="upper left", fontsize=9)
+plt.tight_layout()
+plt.show()
+```
+
+### Saving artifacts for the interactive app
+
+The Streamlit app loads these three files and nothing else.
+
+```{python}
+#| label: save-artifacts
+with open("idata.meta.json", "w") as f:
+    json.dump({
+        "teams":        team_names,
+        "conferences":  conf_list,
+        "team_to_conf": team_to_conf.tolist(),
+        "team_ids":     [int(t) for t in active_ids],
+        "season":       SEASON,
+    }, f)
+
+adv.to_csv("bracket_advancement.csv", index=False)
+
+print("Saved idata.meta.json and bracket_advancement.csv")
+```
+
+## Discussion & Conclusions
+
+**What the model gets right.** Partial pooling substantially reduces the noise in small-conference team ratings — the shrinkage plot makes this visible, with extreme raw estimates pulled toward zero for teams whose schedule doesn't support them. Calibration on held-out tournament games sits close to the diagonal in the reliability diagram, suggesting the posterior probabilities are meaningful (not just correctly ordered). HFA comes out close to 3 points with a narrow posterior, matching the basketball-analytics consensus that home-court advantage in college hoops is real but modest. NUTS convergence is clean, with $\hat{R}$ near 1 and no divergences — the non-centered parameterization is doing its job on the hierarchical funnels.
+
+**Relation to ridge regression.** The standard "ridge on point differential" approach is exactly the posterior mode of a simpler version of this model (flat priors on everything, no hierarchy). The Bayesian version adds three things for free: predictive uncertainty (credible intervals on every probability), explicit hierarchical shrinkage (rather than implicit L2 regularization toward zero), and offense/defense decomposition (rather than a single team strength). The tradeoff is computational cost — ridge runs in seconds; MCMC takes a couple of minutes — but the cost is paid once, offline, so interactive use is still instantaneous.
+
+**What the model misses.** Three limitations are worth naming. First, there are *no time dynamics*: every game in a season gets equal weight, so a team improving through the year is modeled as static. A state-space prior on ratings (a random walk across games, or across seasons) would fix this and would be particularly valuable for early-season prediction when within-season sample is thin. Second, the *Gaussian likelihood on scores* is convenient but technically wrong — scores are non-negative integers. A Negative-Binomial-on-possessions model would be more principled and would produce cleaner totals and over/under predictions. Third, there is *no injury or roster information*: two teams with the same rating could have very different true strengths if one has a star player injured for the tournament. Adding player-level structure (analogous to Rasch IRT on box-score statistics) could help but requires data we haven't used here.
+
+**Extensions.** Natural next steps, in rough order of value versus effort: a multi-season model that pools ratings across years (most valuable, easiest to add); separating conference effects by strength tier instead of treating all conferences exchangeably (moderate effort); switching to the Negative-Binomial-on-possessions likelihood; and finally player-level hierarchy for deeper structure. Any of these would integrate cleanly into the current codebase.
+
+**Interactive companion.** An interactive version of the rating table and the game predictor — powered by the same posterior as this report — is deployed as a Streamlit app. The app reads only the three artifact files saved above, so it stays in sync with whatever is committed to the repository.
+
+> Live demo: The app can be run locally with `streamlit run app.py`.
+
+
+

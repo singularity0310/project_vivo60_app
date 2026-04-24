@@ -1,0 +1,49 @@
+on: push
+name: Repo Checks
+jobs:
+  check_renders:
+    runs-on: self-hosted
+    container:
+      image: ghcr.io/dukestatsci/r_gh_actions:latest
+    timeout-minutes: 15
+    steps:
+    - name: Delete artifacts
+      uses: actions/github-script@v8
+      with:
+        script: |
+          const artifacts = await github.rest.actions.listArtifactsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100
+          });
+
+          for (const artifact of artifacts.data.artifacts) {
+            console.log(`Deleting artifact: ${artifact.name} (${artifact.id})`);
+            await github.rest.actions.deleteArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifact.id
+            });
+          }
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Initialize uv
+      run: |
+        uv sync
+    - name: Check Renders to html
+      run: |
+        uv run quarto render project.qmd --execute --to html --embed-resources
+    - name: Check Renders to gfm
+      run: |
+        uv run quarto render project.qmd --execute --to gfm
+    - name: Create artifact (html)
+      uses: actions/upload-artifact@v4
+      with:
+        name: project-html
+        path: project.html
+    - name: Create artifact (md)
+      uses: actions/upload-artifact@v4
+      with:
+        name: project-md
+        path: project.md

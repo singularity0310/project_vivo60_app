@@ -1,0 +1,25 @@
+[project]
+name = "project"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "arviz<0.21",
+    "h5netcdf>=1.8.1",
+    "h5py>=3.16.0",
+    "ipykernel>=7.2.0",
+    "jax>=0.10.0",
+    "jupyter>=1.1.1",
+    "matplotlib>=3.10.8",
+    "nbclient>=0.10.4",
+    "nbformat>=5.10.4",
+    "netcdf4>=1.7.4",
+    "numpy>=2.4.4",
+    "numpyro>=0.20.1",
+    "pandas>=3.0.2",
+    "plotly>=6.7.0",
+    "pymc>=5.28.0",
+    "pyyaml>=6.0.3",
+    "scipy>=1.17.1",
+    "seaborn>=0.13.2",
+    "streamlit>=1.56.0",
+]
