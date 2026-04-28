@@ -1143,293 +1143,214 @@ with tab3:
 
         st.plotly_chart(fig, use_container_width=True)
 
-
 # ============================================================
 # Tab 4: Bracket
 # ============================================================
 
 with tab4:
-    # ---- Load seed information ----
-    seeds_raw = pd.read_csv("data_slim/MNCAATourneySeeds.csv")
-    seeds_df = seeds_raw[seeds_raw.Season == season].copy()
-    seeds_df["region"]   = seeds_df.Seed.str[0]
-    seeds_df["seed_num"] = seeds_df.Seed.str[1:3].astype(int)
-    
-    # Map TeamID -> team name (team_ids is in meta)
-    id_to_name = dict(zip(meta["team_ids"], teams))
-    seeds_df["team"] = seeds_df.TeamID.map(id_to_name)
-    seeds_df = seeds_df.dropna(subset=["team"])
-    
-    # Map team -> net rating from df (which is already sorted by rank)
-    team_to_net = dict(zip(df.Team, df.Net))
-    seeds_df["net"] = seeds_df.team.map(team_to_net)
-    
-    # ---- Build the bracket: simulate each round, pick higher net rating ----
-    R1_PAIRS = [(1, 16), (8, 9), (5, 12), (4, 13),
-                (6, 11), (3, 14), (7, 10), (2, 15)]
-    REGIONS = ["W", "X", "Y", "Z"]
-    REGION_NAMES = {"W": "South", "X": "East", "Y": "Midwest", "Z": "West"}
-    
-    def pick_winner(team_a_dict, team_b_dict):
-        """Higher net rating wins. Returns the winner dict."""
-        if team_a_dict is None: return team_b_dict
-        if team_b_dict is None: return team_a_dict
-        return team_a_dict if team_a_dict["net"] > team_b_dict["net"] else team_b_dict
-    
-    def get_seed_team(region, seed_num):
-        """Return dict for the team with given seed in given region."""
-        sub = seeds_df[(seeds_df.region == region) & (seeds_df.seed_num == seed_num)]
-        if len(sub) == 0:
-            return None
-        # If two teams share a seed (First Four), pick higher net
-        rows = sub.to_dict("records")
-        if len(rows) == 1:
-            return rows[0]
-        return pick_winner(rows[0], rows[1])
-    
-    # Build region brackets
-    region_results = {}  # region -> list of rounds, each round is list of winners
-    for region in REGIONS:
-        # Round 1: 8 games
-        r1 = []
-        for hi, lo in R1_PAIRS:
-            winner = pick_winner(get_seed_team(region, hi), get_seed_team(region, lo))
-            r1.append(winner)
-        # Round 2: 4 games
-        r2 = [pick_winner(r1[i], r1[i+1]) for i in range(0, 8, 2)]
-        # Sweet 16: 2 games
-        s16 = [pick_winner(r2[i], r2[i+1]) for i in range(0, 4, 2)]
-        # Elite 8: 1 game (regional final)
-        e8 = pick_winner(s16[0], s16[1])
-        region_results[region] = {
-            "r1": r1, "r2": r2, "s16": s16, "e8": e8
-        }
-    
-    # Final Four: W vs X, Y vs Z
-    f4_a = pick_winner(region_results["W"]["e8"], region_results["X"]["e8"])
-    f4_b = pick_winner(region_results["Y"]["e8"], region_results["Z"]["e8"])
-    champion = pick_winner(f4_a, f4_b)
-    
     # ---- Headline ----
+    bk = bracket.copy()
+    bk["seed_num"] = bk.seed.str[1:3].astype(int)
+    bk["region_label"] = bk.region.map(
+        {"W": "Region 1", "X": "Region 2", "Y": "Region 3", "Z": "Region 4"}
+    )
+    
+    # Map round name -> column
+    ROUND_COLS = {
+        "Round of 32":  "p_r32",
+        "Sweet 16":     "p_sweet16",
+        "Elite 8":      "p_elite8",
+        "Final 4":      "p_final4",
+        "Final":        "p_champgame",
+        "Champion":     "p_champ",
+    }
+    
+    ROUND_TITLES = {
+        "Round of 32":  "🏀 Who reaches the Round of 32?",
+        "Sweet 16":     "🔥 Who survives to the Sweet 16?",
+        "Elite 8":      "💪 Who makes the Elite 8?",
+        "Final 4":      "🏆 Final Four contenders",
+        "Final":        "⭐ Championship game contenders",
+        "Champion":     "🏆 Title contenders",
+    }
+    
+    # Headline summary
+    favorite = bk.sort_values("p_champ", ascending=False).iloc[0]
+    n_realistic = int((bk.p_champ > 0.05).sum())
+    
     st.markdown(
         f"""
         <div class="hero-card">
-            <div class="hero-card-title">🏆 Predicted bracket</div>
+            <div class="hero-card-title">🏆 Predicted bracket outcomes</div>
             <div class="hero-card-subtitle">
-                Each game's winner is the team with the higher Net rating. 
-                Predicted champion: <b>{champion['team']}</b> (#{champion['seed_num']} {REGION_NAMES[champion['region']]}).
+                <b>{favorite.team}</b> is the model's pick at <b>{favorite.p_champ:.1%}</b> to cut down the nets,
+                with <b>{n_realistic} teams</b> giving it a realistic shot (≥5%). 
+                Pick a round below to see who's most likely to reach it.
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     
-   # ---- Draw the bracket using plotly ----
+    # ---- Round selector + top N slider ----
+    sel_col, slider_col = st.columns([3, 2])
     
-    # Each region gets its own y-band. 4 regions, stacked top to bottom on each side.
-    # But standard NCAA layout puts 2 regions on left (W, X) and 2 on right (Y, Z).
-    # 16 R64 slots per region → we need 16 y-positions per region with breathing room.
+    with sel_col:
+        selected_round = st.radio(
+            "Pick a round",
+            list(ROUND_COLS.keys()),
+            horizontal=True,
+            index=5,  # default to Champion
+        )
     
-    BAND_HEIGHT  = 17        # vertical units per region (16 slots + padding)
-    GAP_BETWEEN  = 2         # gap between W and X (also Y and Z)
+    with slider_col:
+        top_n_bracket = st.slider(
+            "Show top N teams",
+            min_value=8, max_value=24, value=12, step=4,
+            key="bracket_top_n",
+        )
     
-    def y_for_round1(region_idx, slot):
-        """y position for one of 16 R1 slots in a region.
-        region_idx: 0=W (top-left), 1=X (bot-left), 2=Y (top-right), 3=Z (bot-right).
-        slot: 0..15, top to bottom within the region.
+    # ---- Build the leaderboard ----
+    prob_col = ROUND_COLS[selected_round]
+    leaderboard = bk.sort_values(prob_col, ascending=False).head(top_n_bracket).reset_index(drop=True)
+    
+    # Max value for progress bar scaling
+    max_pct = leaderboard[prob_col].max()
+    
+    st.markdown(f"### {ROUND_TITLES[selected_round]}")
+    st.markdown(
+        f'<div class="section-note">Top {top_n_bracket} teams by their probability of reaching <b>{selected_round}</b>. '
+        f'Bar length is relative to the leader.</div>',
+        unsafe_allow_html=True,
+    )
+    
+    # ---- CSS for the leaderboard rows ----
+    st.markdown(
         """
-        # Top of band depends on region_idx (which side: top or bottom)
-        if region_idx in (0, 2):  # top regions: W, Y
-            top = BAND_HEIGHT * 2 + GAP_BETWEEN
-        else:                      # bottom regions: X, Z
-            top = BAND_HEIGHT
-        return top - slot - 0.5
-    
-    def y_avg(*ys):
-        return sum(ys) / len(ys)
-    
-    # X coordinates: 0,1,2,3 = R64,R32,S16,E8 left;  8,7,6,5 = R64,R32,S16,E8 right
-    # Final Four: x=4 (left F4) and x=4 (right F4) at different y; champion at center
-    
-    BOX_HALF_W = 0.42
-    BOX_HALF_H = 0.36
-    
-    # Detect dark mode by checking if Streamlit is in dark theme
-    # Plotly annotations need explicit colors
-    text_color   = "#F5F1ED"  # light text — works on dark bg; on light bg it's still readable on filled boxes
-    text_dark    = "#1F2230"
-    win_fill     = "rgba(255, 107, 26, 0.85)"
-    win_line     = "#FF6B1A"
-    lose_fill    = "rgba(24, 95, 165, 0.20)"
-    lose_line    = "#5B89B8"
-    line_color   = "rgba(150, 150, 160, 0.45)"
-    
-    fig = go.Figure()
-    
-    def add_box(x, y, team_dict, won):
-        if team_dict is None:
-            label = "?"
-        else:
-            label = f"#{team_dict['seed_num']} {team_dict['team']}"
-        
-        fill = win_fill if won else lose_fill
-        line = win_line if won else lose_line
-        txt  = "#FFFFFF" if won else text_color
-        
-        fig.add_shape(
-            type="rect",
-            x0=x - BOX_HALF_W, y0=y - BOX_HALF_H,
-            x1=x + BOX_HALF_W, y1=y + BOX_HALF_H,
-            line=dict(color=line, width=1.2),
-            fillcolor=fill,
-            layer="below",
-        )
-        fig.add_annotation(
-            x=x, y=y, text=f"<b>{label}</b>",
-            showarrow=False,
-            font=dict(size=9.5, color=txt, family="Inter"),
-        )
-    
-    def add_connector(x1, y1, x2, y2):
-        """Draw an L-shaped line from (x1,y1) to (x2,y2)."""
-        x_mid = (x1 + x2) / 2
-        fig.add_shape(type="line", x0=x1 + BOX_HALF_W, y0=y1, x1=x_mid, y1=y1,
-                      line=dict(color=line_color, width=1))
-        fig.add_shape(type="line", x0=x_mid, y0=y1, x1=x_mid, y1=y2,
-                      line=dict(color=line_color, width=1))
-        fig.add_shape(type="line", x0=x_mid, y0=y2, x1=x2 - BOX_HALF_W, y1=y2,
-                      line=dict(color=line_color, width=1))
-    
-    # ---- Render each region ----
-    LEFT_REGIONS  = [("W", 0, [0, 1, 2, 3]),  ("X", 1, [0, 1, 2, 3])]
-    RIGHT_REGIONS = [("Y", 2, [8, 7, 6, 5]),  ("Z", 3, [8, 7, 6, 5])]
-    
-    region_e8_y = {}  # for connecting to F4
-    
-    for region, r_idx, x_cols in LEFT_REGIONS + RIGHT_REGIONS:
-        rr = region_results[region]
-        is_left = region in ("W", "X")
-        
-        # R1: 16 boxes at x_cols[0]
-        r1_ys = []
-        for game_i, (hi, lo) in enumerate(R1_PAIRS):
-            tA = get_seed_team(region, hi)
-            tB = get_seed_team(region, lo)
-            yA = y_for_round1(r_idx, 2 * game_i)
-            yB = y_for_round1(r_idx, 2 * game_i + 1)
-            r1_ys.append((yA, yB, tA, tB, rr["r1"][game_i]))
-            add_box(x_cols[0], yA, tA, won=(rr["r1"][game_i] == tA))
-            add_box(x_cols[0], yB, tB, won=(rr["r1"][game_i] == tB))
-        
-        # R2: 8 boxes at x_cols[1]
-        r2_ys = []
-        for game_i in range(8):
-            yA, yB, _, _, winner = r1_ys[game_i]
-            y_r2 = y_avg(yA, yB)
-            r2_ys.append(y_r2)
-            add_box(x_cols[1], y_r2, winner, won=True)
-            # Connectors from R1 to R2
-            add_connector(x_cols[0], yA, x_cols[1], y_r2)
-            add_connector(x_cols[0], yB, x_cols[1], y_r2)
-        
-        # S16: 4 boxes at x_cols[2]
-        s16_ys = []
-        for i in range(0, 8, 2):
-            y_s16 = y_avg(r2_ys[i], r2_ys[i + 1])
-            s16_ys.append(y_s16)
-            winner = rr["s16"][i // 2]
-            add_box(x_cols[2], y_s16, winner, won=True)
-            add_connector(x_cols[1], r2_ys[i], x_cols[2], y_s16)
-            add_connector(x_cols[1], r2_ys[i + 1], x_cols[2], y_s16)
-        
-        # E8: 1 box at x_cols[3]
-        y_e8 = y_avg(*s16_ys)
-        add_box(x_cols[3], y_e8, rr["e8"], won=True)
-        for y_s16 in s16_ys:
-            add_connector(x_cols[2], y_s16, x_cols[3], y_e8)
-        region_e8_y[region] = y_e8
-    
-    # ---- Final Four ----
-    f4_top_y = y_avg(region_e8_y["W"], region_e8_y["X"])
-    f4_bot_y = y_avg(region_e8_y["Y"], region_e8_y["Z"])
-    
-    add_box(4, f4_top_y, f4_a, won=(champion == f4_a))
-    add_box(4, f4_bot_y, f4_b, won=(champion == f4_b))
-    add_connector(3, region_e8_y["W"], 4, f4_top_y)
-    add_connector(3, region_e8_y["X"], 4, f4_top_y)
-    add_connector(5, region_e8_y["Y"], 4, f4_bot_y)
-    add_connector(5, region_e8_y["Z"], 4, f4_bot_y)
-    
-    # ---- Champion (bigger box, gold) ----
-    champ_y = y_avg(f4_top_y, f4_bot_y)
-    fig.add_shape(
-        type="rect",
-        x0=4 - 0.55, y0=champ_y - 0.55,
-        x1=4 + 0.55, y1=champ_y + 0.55,
-        line=dict(color="#F4D35E", width=2.5),
-        fillcolor="rgba(244, 211, 94, 0.85)",
-    )
-    fig.add_annotation(
-        x=4, y=champ_y + 0.18,
-        text="🏆",
-        showarrow=False,
-        font=dict(size=18),
-    )
-    fig.add_annotation(
-        x=4, y=champ_y - 0.22,
-        text=f"<b>{champion['team']}</b>",
-        showarrow=False,
-        font=dict(size=11, color="#1F2230", family="Inter"),
-    )
-    add_connector(4, f4_top_y, 4, champ_y + 0.55)
-    add_connector(4, f4_bot_y, 4, champ_y - 0.55)
-    
-    # ---- Round labels at top ----
-    round_labels = ["R64", "R32", "S16", "E8", "F4", "E8", "S16", "R32", "R64"]
-    label_y = BAND_HEIGHT * 2 + GAP_BETWEEN + 1.0
-    for i, lbl in enumerate(round_labels):
-        fig.add_annotation(
-            x=i, y=label_y,
-            text=f"<b>{lbl}</b>",
-            showarrow=False,
-            font=dict(size=11, color="#888780", family="Inter"),
-        )
-    
-    # ---- Region labels (south side of each band) ----
-    REGION_FULL = {"W": "South", "X": "East", "Y": "Midwest", "Z": "West"}
-    for region, r_idx, x_cols in LEFT_REGIONS + RIGHT_REGIONS:
-        if r_idx in (0, 2):
-            yreg = BAND_HEIGHT * 2 + GAP_BETWEEN - 0.3
-        else:
-            yreg = BAND_HEIGHT - 0.3
-        fig.add_annotation(
-            x=x_cols[0] + 1.0, y=yreg,
-            text=f"<b>{REGION_FULL.get(region, region)} ({region})</b>",
-            showarrow=False,
-            font=dict(size=10, color="#888780", family="Inter"),
-            xanchor="left",
-        )
-    
-    fig.update_layout(
-        height=1100,
-        showlegend=False,
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.7, 8.7]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
-                   range=[0, BAND_HEIGHT * 2 + GAP_BETWEEN + 2]),
-        margin=dict(l=10, r=10, t=20, b=10),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
+        <style>
+          .leader-row {
+              display: grid;
+              grid-template-columns: 60px 60px 1fr 2fr 90px;
+              align-items: center;
+              gap: 14px;
+              padding: 10px 14px;
+              margin-bottom: 8px;
+              background: linear-gradient(180deg, rgba(255, 107, 26, 0.05), var(--surface));
+              border: 1px solid rgba(255, 107, 26, 0.20);
+              border-radius: 14px;
+              transition: transform 0.12s ease, border-color 0.12s ease;
+          }
+          .leader-row:hover {
+              transform: translateX(3px);
+              border-color: rgba(255, 107, 26, 0.55);
+          }
+          .leader-row.top3 {
+              border: 1.5px solid rgba(255, 107, 26, 0.55);
+              background: linear-gradient(180deg, rgba(255, 107, 26, 0.13), var(--surface));
+          }
+          .leader-rank {
+              font-family: 'Bebas Neue', sans-serif;
+              font-size: 1.65rem;
+              color: var(--orange);
+              text-align: center;
+              letter-spacing: 0.02em;
+          }
+          .leader-logo {
+              display: flex;
+              justify-content: center;
+              align-items: center;
+          }
+          .leader-logo img {
+              width: 42px; height: 42px;
+              object-fit: contain;
+              filter: drop-shadow(0 4px 8px rgba(0,0,0,0.20));
+          }
+          .leader-logo .logo-badge,
+          .leader-logo .logo-badge-center {
+              width: 42px; height: 42px;
+              font-size: 0.85rem;
+              margin: 0;
+          }
+          .leader-info {
+              display: flex; flex-direction: column;
+          }
+          .leader-name {
+              color: var(--text-strong);
+              font-size: 1.1rem;
+              font-weight: 800;
+              line-height: 1.1;
+          }
+          .leader-meta {
+              color: var(--muted);
+              font-size: 0.74rem;
+              font-weight: 700;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+              margin-top: 2px;
+          }
+          .leader-bar-wrap {
+              background: rgba(122, 130, 148, 0.18);
+              border-radius: 999px;
+              height: 14px;
+              overflow: hidden;
+              position: relative;
+          }
+          .leader-bar-fill {
+              height: 100%;
+              background: linear-gradient(90deg, #FF6B1A, #D85A30);
+              border-radius: 999px;
+              box-shadow: 0 0 12px rgba(255, 107, 26, 0.50);
+          }
+          .leader-pct {
+              font-family: 'Bebas Neue', sans-serif;
+              font-size: 1.55rem;
+              color: var(--text-strong);
+              text-align: right;
+              letter-spacing: 0.01em;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    # ---- Render leaderboard ----
+    rows_html = []
+    for i, row in leaderboard.iterrows():
+        rank = i + 1
+        team = str(row["team"])
+        prob = float(row[prob_col])
+        bar_pct = (prob / max_pct) * 100 if max_pct > 0 else 0
+        
+        top3_class = "top3" if rank <= 3 else ""
+        logo = logo_html(team, centered=True)
+        seed_str = f"Seed {row['seed_num']} · {row['region_label']}"
+        
+        rows_html.append(f"""
+            <div class="leader-row {top3_class}">
+                <div class="leader-rank">#{rank}</div>
+                <div class="leader-logo">{logo}</div>
+                <div class="leader-info">
+                    <div class="leader-name">{html.escape(team)}</div>
+                    <div class="leader-meta">{html.escape(seed_str)}</div>
+                </div>
+                <div class="leader-bar-wrap">
+                    <div class="leader-bar-fill" style="width: {bar_pct:.1f}%;"></div>
+                </div>
+                <div class="leader-pct">{prob*100:.1f}%</div>
+            </div>
+        """)
+    
+    st.markdown("\n".join(rows_html), unsafe_allow_html=True)
     
     # ---- Full table (collapsed) ----
     with st.expander("📊 Full advancement probability table"):
-        show = bracket.copy()
+        show = bk.copy()
         pcols = ["p_r32", "p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]
         for c in pcols:
             show[c] = (show[c] * 100).round(1).astype(str) + "%"
-        show = show[["seed", "region", "team"] + pcols]
+        show = show[["seed", "region", "team"] + pcols].sort_values(
+            "team"
+        )
         show.columns = ["Seed", "Region", "Team", "R32", "Sweet 16",
                         "Elite 8", "Final 4", "Final", "Champion"]
         st.dataframe(show, use_container_width=True, height=540, hide_index=True)
