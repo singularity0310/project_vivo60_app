@@ -1149,77 +1149,136 @@ with tab3:
 # ============================================================
 
 with tab4:
+    # ---- Headline summary ----
+    bk = bracket.copy().sort_values("p_champ", ascending=False).reset_index(drop=True)
+    
+    favorite = bk.iloc[0]
+    n_realistic = int((bk.p_champ > 0.05).sum())
+    final4_picks = bk.head(4).team.tolist()
+    f4_str = ", ".join(final4_picks[:3]) + f", and {final4_picks[3]}"
+    
+    # Most likely R64 upset = highest seed-number team with reasonable upset chance
+    if "seed" in bk.columns:
+        bk["seed_num"] = bk.seed.str[1:3].astype(int)
+        upset_candidates = bk[(bk.seed_num >= 11) & (bk.p_r32 > 0.20)].sort_values(
+            "p_r32", ascending=False
+        )
+        if len(upset_candidates) > 0:
+            upset_team = upset_candidates.iloc[0]
+            upset_str = f"{upset_team.seed} {upset_team.team}"
+            upset_pct = f"{upset_team.p_r32:.0%}"
+        else:
+            upset_str = "—"
+            upset_pct = ""
+    else:
+        upset_str = "—"
+        upset_pct = ""
+    
     st.markdown(
-        "Tournament advancement chances from repeated bracket simulations."
+        f"""
+        <div class="hero-card">
+            <div class="hero-card-title">🏆 The bracket, in one sentence</div>
+            <div class="hero-card-subtitle">
+                <b>{favorite.team}</b> is our pick at <b>{favorite.p_champ:.1%}</b>, 
+                but the title is wide open — <b>{n_realistic} teams</b> have a realistic shot. 
+                Top Final Four picks: <b>{f4_str}</b>.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-
-    show = bracket.copy()
-
-    pcols = [
-        "p_r32",
-        "p_sweet16",
-        "p_elite8",
-        "p_final4",
-        "p_champgame",
-        "p_champ",
-    ]
-
-    for c in pcols:
-        show[c] = (show[c] * 100).round(1).astype(str) + "%"
-
-    show = show[["seed", "region", "team"] + pcols]
-
-    show.columns = [
-        "Seed",
-        "Region",
-        "Team",
-        "R32",
-        "Sweet 16",
-        "Elite 8",
-        "Final 4",
-        "Final",
-        "Champion",
-    ]
-
+    
+    # ---- Top-line metrics ----
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Title favorite", favorite.team, f"{favorite.p_champ:.1%}")
+    k2.metric("Realistic contenders", f"{n_realistic} teams", "champ ≥ 5%")
+    k3.metric("Top upset pick", upset_str, upset_pct + " in R64")
+    k4.metric("Final Four favorite", final4_picks[0], 
+              f"{bk.iloc[0].p_final4:.1%}")
+    
+    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
+    
+    # ---- Region filter ----
+    st.markdown("### Tournament advancement table")
+    
+    region_filter = st.selectbox(
+        "Filter by region",
+        ["All regions", "W", "X", "Y", "Z"],
+        index=0,
+    )
+    
+    show = bk.copy()
+    if region_filter != "All regions":
+        show = show[show.region == region_filter]
+    
+    pcols = ["p_r32", "p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]
+    show = show[["seed", "region", "team"] + pcols].copy()
+    show.columns = ["Seed", "Region", "Team", "R32", "Sweet 16", "Elite 8",
+                    "Final 4", "Final", "Champion"]
+    
+    # Use ProgressColumn for visual bars
     st.dataframe(
         show,
         use_container_width=True,
         height=540,
         hide_index=True,
+        column_config={
+            "R32":       st.column_config.ProgressColumn("R32",       format="%.1f%%", min_value=0, max_value=100),
+            "Sweet 16":  st.column_config.ProgressColumn("Sweet 16",  format="%.1f%%", min_value=0, max_value=100),
+            "Elite 8":   st.column_config.ProgressColumn("Elite 8",   format="%.1f%%", min_value=0, max_value=80),
+            "Final 4":   st.column_config.ProgressColumn("Final 4",   format="%.1f%%", min_value=0, max_value=50),
+            "Final":     st.column_config.ProgressColumn("Final",     format="%.1f%%", min_value=0, max_value=30),
+            "Champion":  st.column_config.ProgressColumn("Champion",  format="%.1f%%", min_value=0, max_value=20),
+        },
     )
-
-    top12 = bracket.head(12)
-
-    rounds_labels = [
-        "R32",
-        "Sweet 16",
-        "Elite 8",
-        "Final 4",
-        "Final",
-        "Champion",
-    ]
-
-    fig = go.Figure()
-
-    for _, row in top12.iterrows():
-        fig.add_trace(
-            go.Scatter(
-                x=rounds_labels,
-                y=[row[c] for c in pcols],
-                mode="lines+markers",
-                name=f"{row['seed']} {row['team']}",
-                hovertemplate="%{y:.1%}<extra>%{fullData.name}</extra>",
-            )
+    # NOTE: ProgressColumn needs raw numbers (0-100), not strings.
+    # The pcols above are still 0-1 floats from the bracket dataframe;
+    # convert them to percentages here:
+    
+    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
+    
+    # ---- Heatmap ----
+    st.markdown("### Round-by-round chances (top 16 teams)")
+    st.markdown(
+        '<div class="section-note">Darker = more likely to advance. '
+        'You can see who\'s a "make-the-Final-Four-easily" team versus who only has '
+        'a narrow path to the title.</div>',
+        unsafe_allow_html=True,
+    )
+    
+    top16 = bk.head(16).copy()
+    z_matrix = top16[pcols].values * 100  # to percentages
+    
+    team_labels = [f"{row.seed} {row.team}" for _, row in top16.iterrows()]
+    round_labels = ["R32", "Sweet 16", "Elite 8", "Final 4", "Final", "Champion"]
+    
+    fig_hm = go.Figure(
+        data=go.Heatmap(
+            z=z_matrix,
+            x=round_labels,
+            y=team_labels,
+            colorscale=[
+                [0.0, "rgba(255,107,26,0.05)"],
+                [0.3, "rgba(255,107,26,0.35)"],
+                [0.7, "rgba(255,107,26,0.75)"],
+                [1.0, "rgba(216,90,48,1.0)"],
+            ],
+            text=[[f"{v:.0f}%" for v in row] for row in z_matrix],
+            texttemplate="%{text}",
+            textfont=dict(size=11, color="white"),
+            hovertemplate="<b>%{y}</b><br>%{x}: %{z:.1f}%<extra></extra>",
+            colorbar=dict(title="P(reach round)", thickness=12, len=0.7),
         )
-
-    fig.update_yaxes(tickformat=".0%", range=[0, 1])
-
-    fig.update_layout(
-        height=480,
-        margin=dict(l=50, r=30, t=30, b=50),
     )
-
-    st.plotly_chart(fig, use_container_width=True)
+    
+    fig_hm.update_layout(
+        height=560,
+        margin=dict(l=160, r=30, t=20, b=50),
+        xaxis=dict(side="top", tickfont=dict(size=12, color=BRAND["text" if False else "muted"])),
+        yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+    )
+    
+    st.plotly_chart(fig_hm, use_container_width=True)
 
 
 # ============================================================
