@@ -995,45 +995,12 @@ with tab1:
     bottom10 = df.tail(10).sort_values("Net", ascending=True).copy()
 
     # Strongest teams title + small help icon
-    st.markdown(
-        """
-        <div style="
-            display: flex;
-            align-items: center;
-            gap: 0.45rem;
-            margin-top: 0.5rem;
-            margin-bottom: 0.8rem;
-        ">
-            <span style="font-size: 1.65rem;">🔥</span>
-            <span style="
-                font-size: 1.75rem;
-                font-weight: 800;
-                color: var(--text-strong);
-                letter-spacing: -0.02em;
-            ">
-                Strongest teams
-            </span>
-            <span title="Stronger teams have higher Net ratings. Net combines a team's estimated offense and defense into one overall strength score."
-                  style="
-                      display: inline-flex;
-                      align-items: center;
-                      justify-content: center;
-                      width: 20px;
-                      height: 20px;
-                      border-radius: 50%;
-                      border: 1.5px solid var(--muted);
-                      color: var(--muted);
-                      font-size: 0.85rem;
-                      font-weight: 800;
-                      cursor: help;
-                      margin-left: 0.25rem;
-                  ">
-                ?
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.subheader(
+        "🔥 Strongest teams",
+        help=("Strongest teams are the teams with the highest Net rating. "
+        "Net rating combines a team's estimated offense and defense into one overall strength score."
+        ),
+        )
 
     top3 = top10.head(3)
     top_cols = st.columns(3)
