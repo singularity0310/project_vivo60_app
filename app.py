@@ -954,9 +954,9 @@ for col in ["Offense", "Defense", "Net", "Net 5%", "Net 95%", "Uncertainty"]:
 # ============================================================
 
 st.markdown(
-    f"""
+    """
     <div class="hero">
-        <h1 class="app-hero-title">🏀 March Madness Forecast · {season}</h1>
+        <h1 class="app-hero-title">🏀 March Madness Forecast</h1>
     </div>
     """,
     unsafe_allow_html=True,
