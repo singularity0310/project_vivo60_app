@@ -1149,136 +1149,247 @@ with tab3:
 # ============================================================
 
 with tab4:
-    # ---- Headline summary ----
-    bk = bracket.copy().sort_values("p_champ", ascending=False).reset_index(drop=True)
+    # ---- Load seed information ----
+    seeds_raw = pd.read_csv("data_slim/MNCAATourneySeeds.csv")
+    seeds_df = seeds_raw[seeds_raw.Season == season].copy()
+    seeds_df["region"]   = seeds_df.Seed.str[0]
+    seeds_df["seed_num"] = seeds_df.Seed.str[1:3].astype(int)
     
-    favorite = bk.iloc[0]
-    n_realistic = int((bk.p_champ > 0.05).sum())
-    final4_picks = bk.head(4).team.tolist()
-    f4_str = ", ".join(final4_picks[:3]) + f", and {final4_picks[3]}"
+    # Map TeamID -> team name (team_ids is in meta)
+    id_to_name = dict(zip(meta["team_ids"], teams))
+    seeds_df["team"] = seeds_df.TeamID.map(id_to_name)
+    seeds_df = seeds_df.dropna(subset=["team"])
     
-    # Most likely R64 upset = highest seed-number team with reasonable upset chance
-    if "seed" in bk.columns:
-        bk["seed_num"] = bk.seed.str[1:3].astype(int)
-        upset_candidates = bk[(bk.seed_num >= 11) & (bk.p_r32 > 0.20)].sort_values(
-            "p_r32", ascending=False
-        )
-        if len(upset_candidates) > 0:
-            upset_team = upset_candidates.iloc[0]
-            upset_str = f"{upset_team.seed} {upset_team.team}"
-            upset_pct = f"{upset_team.p_r32:.0%}"
-        else:
-            upset_str = "—"
-            upset_pct = ""
-    else:
-        upset_str = "—"
-        upset_pct = ""
+    # Map team -> net rating from df (which is already sorted by rank)
+    team_to_net = dict(zip(df.Team, df.Net))
+    seeds_df["net"] = seeds_df.team.map(team_to_net)
     
+    # ---- Build the bracket: simulate each round, pick higher net rating ----
+    R1_PAIRS = [(1, 16), (8, 9), (5, 12), (4, 13),
+                (6, 11), (3, 14), (7, 10), (2, 15)]
+    REGIONS = ["W", "X", "Y", "Z"]
+    REGION_NAMES = {"W": "South", "X": "East", "Y": "Midwest", "Z": "West"}
+    
+    def pick_winner(team_a_dict, team_b_dict):
+        """Higher net rating wins. Returns the winner dict."""
+        if team_a_dict is None: return team_b_dict
+        if team_b_dict is None: return team_a_dict
+        return team_a_dict if team_a_dict["net"] > team_b_dict["net"] else team_b_dict
+    
+    def get_seed_team(region, seed_num):
+        """Return dict for the team with given seed in given region."""
+        sub = seeds_df[(seeds_df.region == region) & (seeds_df.seed_num == seed_num)]
+        if len(sub) == 0:
+            return None
+        # If two teams share a seed (First Four), pick higher net
+        rows = sub.to_dict("records")
+        if len(rows) == 1:
+            return rows[0]
+        return pick_winner(rows[0], rows[1])
+    
+    # Build region brackets
+    region_results = {}  # region -> list of rounds, each round is list of winners
+    for region in REGIONS:
+        # Round 1: 8 games
+        r1 = []
+        for hi, lo in R1_PAIRS:
+            winner = pick_winner(get_seed_team(region, hi), get_seed_team(region, lo))
+            r1.append(winner)
+        # Round 2: 4 games
+        r2 = [pick_winner(r1[i], r1[i+1]) for i in range(0, 8, 2)]
+        # Sweet 16: 2 games
+        s16 = [pick_winner(r2[i], r2[i+1]) for i in range(0, 4, 2)]
+        # Elite 8: 1 game (regional final)
+        e8 = pick_winner(s16[0], s16[1])
+        region_results[region] = {
+            "r1": r1, "r2": r2, "s16": s16, "e8": e8
+        }
+    
+    # Final Four: W vs X, Y vs Z
+    f4_a = pick_winner(region_results["W"]["e8"], region_results["X"]["e8"])
+    f4_b = pick_winner(region_results["Y"]["e8"], region_results["Z"]["e8"])
+    champion = pick_winner(f4_a, f4_b)
+    
+    # ---- Headline ----
     st.markdown(
         f"""
         <div class="hero-card">
-            <div class="hero-card-title">🏆 The bracket, in one sentence</div>
+            <div class="hero-card-title">🏆 Predicted bracket</div>
             <div class="hero-card-subtitle">
-                <b>{favorite.team}</b> is our pick at <b>{favorite.p_champ:.1%}</b>, 
-                but the title is wide open — <b>{n_realistic} teams</b> have a realistic shot. 
-                Top Final Four picks: <b>{f4_str}</b>.
+                Each game's winner is the team with the higher Net rating. 
+                Predicted champion: <b>{champion['team']}</b> (#{champion['seed_num']} {REGION_NAMES[champion['region']]}).
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     
-    # ---- Top-line metrics ----
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Title favorite", favorite.team, f"{favorite.p_champ:.1%}")
-    k2.metric("Realistic contenders", f"{n_realistic} teams", "champ ≥ 5%")
-    k3.metric("Top upset pick", upset_str, upset_pct + " in R64")
-    k4.metric("Final Four favorite", final4_picks[0], 
-              f"{bk.iloc[0].p_final4:.1%}")
+    # ---- Draw the bracket using plotly ----
+    fig = go.Figure()
     
-    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
+    # Coordinate system: x = round (0=R64, 6=champion), y = vertical position
+    # Left side: regions W and X (top to bottom: W on top, X on bottom)
+    # Right side: regions Y and Z  
+    # We mirror the right side (rounds go right-to-left from x=6)
     
-    # ---- Region filter ----
-    st.markdown("### Tournament advancement table")
-    
-    region_filter = st.selectbox(
-        "Filter by region",
-        ["All regions", "W", "X", "Y", "Z"],
-        index=0,
-    )
-    
-    show = bk.copy()
-    if region_filter != "All regions":
-        show = show[show.region == region_filter]
-    
-    pcols = ["p_r32", "p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]
-    show = show[["seed", "region", "team"] + pcols].copy()
-    show.columns = ["Seed", "Region", "Team", "R32", "Sweet 16", "Elite 8",
-                    "Final 4", "Final", "Champion"]
-    
-    # Use ProgressColumn for visual bars
-    st.dataframe(
-        show,
-        use_container_width=True,
-        height=540,
-        hide_index=True,
-        column_config={
-            "R32":       st.column_config.ProgressColumn("R32",       format="%.1f%%", min_value=0, max_value=100),
-            "Sweet 16":  st.column_config.ProgressColumn("Sweet 16",  format="%.1f%%", min_value=0, max_value=100),
-            "Elite 8":   st.column_config.ProgressColumn("Elite 8",   format="%.1f%%", min_value=0, max_value=80),
-            "Final 4":   st.column_config.ProgressColumn("Final 4",   format="%.1f%%", min_value=0, max_value=50),
-            "Final":     st.column_config.ProgressColumn("Final",     format="%.1f%%", min_value=0, max_value=30),
-            "Champion":  st.column_config.ProgressColumn("Champion",  format="%.1f%%", min_value=0, max_value=20),
-        },
-    )
-    # NOTE: ProgressColumn needs raw numbers (0-100), not strings.
-    # The pcols above are still 0-1 floats from the bracket dataframe;
-    # convert them to percentages here:
-    
-    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
-    
-    # ---- Heatmap ----
-    st.markdown("### Round-by-round chances (top 16 teams)")
-    st.markdown(
-        '<div class="section-note">Darker = more likely to advance. '
-        'You can see who\'s a "make-the-Final-Four-easily" team versus who only has '
-        'a narrow path to the title.</div>',
-        unsafe_allow_html=True,
-    )
-    
-    top16 = bk.head(16).copy()
-    z_matrix = top16[pcols].values * 100  # to percentages
-    
-    team_labels = [f"{row.seed} {row.team}" for _, row in top16.iterrows()]
-    round_labels = ["R32", "Sweet 16", "Elite 8", "Final 4", "Final", "Champion"]
-    
-    fig_hm = go.Figure(
-        data=go.Heatmap(
-            z=z_matrix,
-            x=round_labels,
-            y=team_labels,
-            colorscale=[
-                [0.0, "rgba(255,107,26,0.05)"],
-                [0.3, "rgba(255,107,26,0.35)"],
-                [0.7, "rgba(255,107,26,0.75)"],
-                [1.0, "rgba(216,90,48,1.0)"],
-            ],
-            text=[[f"{v:.0f}%" for v in row] for row in z_matrix],
-            texttemplate="%{text}",
-            textfont=dict(size=11, color="white"),
-            hovertemplate="<b>%{y}</b><br>%{x}: %{z:.1f}%<extra></extra>",
-            colorbar=dict(title="P(reach round)", thickness=12, len=0.7),
+    def add_game_box(fig, x, y, team_dict, won=False):
+        """Add a single game-result box at position (x, y)."""
+        if team_dict is None:
+            label = "?"
+            seed_str = ""
+        else:
+            label = team_dict["team"]
+            seed_str = f"#{team_dict['seed_num']}"
+        
+        color = "#FF6B1A" if won else "#185FA5"
+        bgcolor = "rgba(255, 107, 26, 0.15)" if won else "rgba(24, 95, 165, 0.10)"
+        
+        fig.add_shape(
+            type="rect",
+            x0=x - 0.45, y0=y - 0.18,
+            x1=x + 0.45, y1=y + 0.18,
+            line=dict(color=color, width=1.5),
+            fillcolor=bgcolor,
         )
+        fig.add_annotation(
+            x=x, y=y,
+            text=f"<b>{seed_str}</b> {label}",
+            showarrow=False,
+            font=dict(size=10, color="#1F2230"),
+        )
+    
+    # Draw left half (W on top, X on bottom)
+    # Round 1: 16 teams (8 per region)
+    # Round positions: x=0 R64, x=1 R32, x=2 S16, x=3 E8, x=4 F4, x=5 final, x=6 champion
+    
+    # ---- Layout: each region has 16 R64 slots ----
+    # We draw W in y from 30 down to 0
+    # Then X in y from -1 down to -31
+    # Right side: Y from 30 down to 0, Z from -1 down to -31, mirrored x
+    
+    # Helper: y position for R64 game in a region (8 games)
+    def y_pos(region_idx, game_in_round, total_in_round):
+        """Region 0,1,2,3 = W, X, Y, Z. Returns y for game_in_round of total."""
+        region_height = 8  # 8 games per region in R1
+        # Vertical span per region: 16 units (with some padding)
+        spacing = 16 / total_in_round
+        offset_within = (game_in_round + 0.5) * spacing
+        if region_idx == 0:    # W: y in [16, 32]
+            return 32 - offset_within
+        elif region_idx == 1:  # X: y in [0, 16]
+            return 16 - offset_within
+        elif region_idx == 2:  # Y: y in [16, 32]
+            return 32 - offset_within
+        else:                  # Z: y in [0, 16]
+            return 16 - offset_within
+    
+    REGION_X_LEFT  = [0, 1, 2, 3]   # x for R64, R32, S16, E8 on left half
+    REGION_X_RIGHT = [6, 5, 4, 3]   # x for R64, R32, S16, E8 on right half (mirrored)
+    F4_X = [4, 4]                   # F4 game x positions (sort of, we tweak)
+    
+    # Draw W and X on left
+    for r_idx, region in enumerate(["W", "X"]):
+        rr = region_results[region]
+        
+        # R1
+        for i in range(8):
+            tA = get_seed_team(region, R1_PAIRS[i][0])
+            tB = get_seed_team(region, R1_PAIRS[i][1])
+            yA = y_pos(r_idx, 2*i, 16)
+            yB = y_pos(r_idx, 2*i + 1, 16)
+            winner = rr["r1"][i]
+            add_game_box(fig, 0, yA, tA, won=(winner == tA))
+            add_game_box(fig, 0, yB, tB, won=(winner == tB))
+        
+        # R2
+        for i in range(4):
+            y = y_pos(r_idx, i, 4)
+            add_game_box(fig, 1, y, rr["r2"][i], won=True)
+        
+        # S16
+        for i in range(2):
+            y = y_pos(r_idx, i, 2)
+            add_game_box(fig, 2, y, rr["s16"][i], won=True)
+        
+        # E8 (regional final)
+        y = y_pos(r_idx, 0, 1)
+        add_game_box(fig, 3, y, rr["e8"], won=True)
+    
+    # Draw Y and Z on right (mirror x)
+    for r_idx, region in enumerate(["Y", "Z"]):
+        rr = region_results[region]
+        actual_idx = r_idx + 2  # Y=2, Z=3
+        
+        for i in range(8):
+            tA = get_seed_team(region, R1_PAIRS[i][0])
+            tB = get_seed_team(region, R1_PAIRS[i][1])
+            yA = y_pos(actual_idx, 2*i, 16)
+            yB = y_pos(actual_idx, 2*i + 1, 16)
+            winner = rr["r1"][i]
+            add_game_box(fig, 8, yA, tA, won=(winner == tA))
+            add_game_box(fig, 8, yB, tB, won=(winner == tB))
+        
+        for i in range(4):
+            y = y_pos(actual_idx, i, 4)
+            add_game_box(fig, 7, y, rr["r2"][i], won=True)
+        
+        for i in range(2):
+            y = y_pos(actual_idx, i, 2)
+            add_game_box(fig, 6, y, rr["s16"][i], won=True)
+        
+        y = y_pos(actual_idx, 0, 1)
+        add_game_box(fig, 5, y, rr["e8"], won=True)
+    
+    # Final Four: 2 games in middle
+    add_game_box(fig, 4, 12, f4_a, won=(champion == f4_a))
+    add_game_box(fig, 4, 4,  f4_b, won=(champion == f4_b))
+    
+    # Champion in center
+    fig.add_shape(
+        type="rect",
+        x0=3.5, y0=7.5, x1=4.5, y1=8.5,
+        line=dict(color="#FFD700", width=3),
+        fillcolor="rgba(255, 215, 0, 0.20)",
+    )
+    fig.add_annotation(
+        x=4, y=8,
+        text=f"🏆<br><b>{champion['team']}</b>",
+        showarrow=False,
+        font=dict(size=14, color="#1F2230"),
     )
     
-    fig_hm.update_layout(
-        height=560,
-        margin=dict(l=160, r=30, t=20, b=50),
-        xaxis=dict(side="top", tickfont=dict(size=12, color=BRAND["text" if False else "muted"])),
-        yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+    fig.update_layout(
+        height=900,
+        showlegend=False,
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.6, 8.6]),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-1, 33]),
+        margin=dict(l=10, r=10, t=20, b=20),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
     )
     
-    st.plotly_chart(fig_hm, use_container_width=True)
+    # Round labels at top
+    round_labels = ["R64", "R32", "S16", "E8", "F4", "E8", "S16", "R32", "R64"]
+    for i, lbl in enumerate(round_labels):
+        fig.add_annotation(
+            x=i, y=33,
+            text=f"<b>{lbl}</b>",
+            showarrow=False,
+            font=dict(size=11, color="#888780"),
+        )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # ---- Full table (collapsed) ----
+    with st.expander("📊 Full advancement probability table"):
+        show = bracket.copy()
+        pcols = ["p_r32", "p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]
+        for c in pcols:
+            show[c] = (show[c] * 100).round(1).astype(str) + "%"
+        show = show[["seed", "region", "team"] + pcols]
+        show.columns = ["Seed", "Region", "Team", "R32", "Sweet 16",
+                        "Elite 8", "Final 4", "Final", "Champion"]
+        st.dataframe(show, use_container_width=True, height=540, hide_index=True)
 
 
 # ============================================================
