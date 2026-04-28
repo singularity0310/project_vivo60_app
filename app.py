@@ -27,7 +27,7 @@ import plotly.io as pio
 # ============================================================
 
 st.set_page_config(
-    page_title="March Madness Forecast · 2025",
+    page_title="March Madness Forecast",
     layout="wide",
     page_icon="🏀",
 )
@@ -918,7 +918,6 @@ meta, samples, bracket = load()
 teams = meta["teams"]
 conferences = meta["conferences"]
 team_to_conf = meta["team_to_conf"]
-season = meta.get("season", 2025)
 gender = meta.get("gender", "M")
 
 
