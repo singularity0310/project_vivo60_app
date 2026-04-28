@@ -918,6 +918,7 @@ meta, samples, bracket = load()
 teams = meta["teams"]
 conferences = meta["conferences"]
 team_to_conf = meta["team_to_conf"]
+season = meta.get("season", 2025)
 gender = meta.get("gender", "M")
 
 
