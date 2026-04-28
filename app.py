@@ -53,259 +53,72 @@ pio.templates.default = "plotly_dark+mm"
 
 CSS = """
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
-
-  /* Force dark sports theme on every Streamlit container */
-  html, body,
-  .stApp,
-  [data-testid="stAppViewContainer"],
-  [data-testid="stHeader"],
-  [data-testid="stToolbar"],
-  .main, .main > div {
-      background-color: #0B1020 !important;
-      color: #F5F1ED !important;
+  :root {
+      --app-muted: rgba(49, 51, 63, 0.68);
+      --app-soft-border: rgba(49, 51, 63, 0.15);
+      --app-accent: #ff4b4b;
   }
-  [data-testid="stHeader"] { background: transparent !important; }
 
-  /* Subtle court-line grid in the page background */
-  .stApp::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background-image:
-          linear-gradient(rgba(255,107,26,0.04) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(24,95,165,0.04) 1px, transparent 1px);
-      background-size: 64px 64px;
-      pointer-events: none;
-      z-index: 0;
+  @media (prefers-color-scheme: dark) {
+      :root {
+          --app-muted: rgba(250, 250, 250, 0.62);
+          --app-soft-border: rgba(250, 250, 250, 0.15);
+          --app-accent: #ff4b4b;
+      }
   }
+
   .block-container {
-      position: relative;
-      z-index: 1;
-      padding-top: 1.2rem;
+      padding-top: 2.2rem;
       padding-bottom: 3rem;
-      max-width: 1240px;
+      max-width: 1200px;
   }
 
-  /* Thin orange accent strip pinned to the top of the viewport */
-  .stApp::after {
-      content: "";
-      position: fixed;
-      top: 0; left: 0; right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, #FF6B1A, #185FA5, #FF6B1A);
-      z-index: 999;
+  h1 {
+      font-weight: 650 !important;
+      letter-spacing: -0.035em;
+      margin-bottom: 0.2rem !important;
   }
 
-  html, body, [class*="css"] {
-      font-family: 'Inter', sans-serif !important;
-      color: #F5F1ED !important;
+  h2, h3 {
+      font-weight: 600 !important;
+      letter-spacing: -0.015em;
   }
 
-  /* Hero banner */
-  .hero {
-      background: linear-gradient(135deg, #FF6B1A 0%, #D85A30 50%, #185FA5 100%);
-      border-radius: 14px;
-      padding: 1.3rem 1.8rem 1.2rem 1.8rem;
+  .muted {
+      color: var(--app-muted);
+      font-size: 1.02rem;
       margin-bottom: 1.4rem;
-      box-shadow: 0 10px 40px -12px rgba(255, 107, 26, 0.35);
-      position: relative;
-      overflow: hidden;
-  }
-  .hero::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background-image: radial-gradient(circle at 90% 30%, rgba(255,255,255,0.18), transparent 40%);
-      pointer-events: none;
-  }
-  .hero-title, h1.hero-title {
-      font-family: 'Bebas Neue', sans-serif !important;
-      font-size: 2.5rem !important;
-      letter-spacing: 0.04em !important;
-      color: #FFFFFF !important;
-      -webkit-text-fill-color: #FFFFFF !important;
-      line-height: 1 !important;
-      margin: 0 !important;
-      text-shadow: 0 2px 14px rgba(0,0,0,0.3);
-  }
-  .hero-subtitle {
-      color: rgba(255,255,255,0.94) !important;
-      font-size: 0.96rem;
-      font-weight: 500;
-      margin-top: 0.5rem;
-      max-width: 820px;
-      position: relative;
-  }
-  .hero-chip {
-      display: inline-block;
-      background: rgba(255,255,255,0.22);
-      color: #FFFFFF !important;
-      font-size: 0.74rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      padding: 0.26rem 0.7rem;
-      border-radius: 999px;
-      margin-bottom: 0.55rem;
-      border: 1px solid rgba(255,255,255,0.25);
   }
 
-  /* Headings */
-  h1, h2, h3, h4 {
-      font-family: 'Inter', sans-serif !important;
-      letter-spacing: -0.02em;
-      color: #F5F1ED !important;
-  }
-  h2 { font-weight: 700 !important; }
-  h3 { font-weight: 650 !important; }
-
-  .stMarkdown p, .stMarkdown li, .stMarkdown {
-      color: rgba(245,241,237,0.92) !important;
-  }
-  .stMarkdown strong { color: #FFFFFF !important; }
-
-  /* Metric cards */
-  [data-testid="stMetric"] {
-      background: linear-gradient(180deg, rgba(255,107,26,0.10) 0%, rgba(20,27,47,0.7) 100%);
-      border: 1px solid rgba(255,107,26,0.22);
-      border-radius: 12px;
-      padding: 1rem 1.1rem;
-      transition: transform 0.15s ease, border-color 0.15s ease;
-  }
-  [data-testid="stMetric"]:hover {
-      transform: translateY(-2px);
-      border-color: rgba(255,107,26,0.55);
-  }
   [data-testid="stMetricValue"] {
-      font-family: 'Bebas Neue', sans-serif !important;
-      font-size: 2rem !important;
-      letter-spacing: 0.02em;
-      color: #FF6B1A !important;
+      font-size: 1.7rem;
+      font-weight: 650;
   }
+
   [data-testid="stMetricLabel"] {
-      color: rgba(245,241,237,0.85) !important;
-      font-size: 0.76rem !important;
-      font-weight: 700 !important;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      color: var(--app-muted);
+      font-size: 0.86rem;
   }
 
-  /* Tabs */
   .stTabs [data-baseweb="tab-list"] {
-      gap: 0.3rem;
-      border-bottom: 1px solid rgba(245,241,237,0.14);
-      margin-bottom: 0.4rem;
+      gap: 1.2rem;
+      border-bottom: 1px solid var(--app-soft-border);
   }
+
   .stTabs [data-baseweb="tab"] {
-      padding: 0.7rem 1.2rem !important;
-      font-weight: 700 !important;
-      font-size: 0.92rem !important;
-      letter-spacing: 0.06em !important;
-      text-transform: uppercase !important;
-      color: #F5F1ED !important;
-      opacity: 0.7;
-      border-radius: 10px 10px 0 0 !important;
-      transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+      padding: 0.7rem 0.15rem 0.65rem 0.15rem;
+      font-weight: 650;
+      font-size: 0.95rem;
   }
-  .stTabs [data-baseweb="tab"] p {
-      color: inherit !important;
-      font-weight: 700 !important;
-      font-size: 0.92rem !important;
-  }
-  .stTabs [data-baseweb="tab"]:hover {
-      opacity: 1;
-      color: #FF6B1A !important;
-      background: rgba(255,107,26,0.07);
-  }
+
   .stTabs [aria-selected="true"] {
-      color: #FF6B1A !important;
-      opacity: 1 !important;
-      border-bottom: 3px solid #FF6B1A !important;
-      background: rgba(255,107,26,0.10);
-  }
-  .stTabs [aria-selected="true"] p { color: #FF6B1A !important; }
-
-  /* Multiselect chips, selectbox, dropdowns */
-  span[data-baseweb="tag"] {
-      background-color: #FF6B1A !important;
-      color: #FFFFFF !important;
-      border-radius: 999px !important;
-      font-weight: 600 !important;
-  }
-  span[data-baseweb="tag"] svg { fill: #FFFFFF !important; }
-  div[data-baseweb="select"] > div {
-      background-color: rgba(20,27,47,0.85) !important;
-      border-color: rgba(255,107,26,0.25) !important;
-      color: #F5F1ED !important;
-  }
-  div[data-baseweb="select"] > div:hover {
-      border-color: rgba(255,107,26,0.55) !important;
-  }
-  div[data-baseweb="popover"] li { color: #F5F1ED !important; }
-  div[data-baseweb="popover"] li:hover { background: rgba(255,107,26,0.15) !important; }
-
-  label, .stCheckbox label, .stSelectbox label, .stMultiSelect label {
-      color: #F5F1ED !important;
-      font-weight: 600 !important;
+      color: var(--app-accent);
+      border-bottom: 2px solid var(--app-accent);
   }
 
-  /* Buttons */
-  .stDownloadButton button, .stButton button {
-      background: linear-gradient(180deg, #FF6B1A 0%, #D85A30 100%) !important;
-      color: #FFFFFF !important;
-      border: none !important;
-      border-radius: 999px !important;
-      padding: 0.55rem 1.4rem !important;
-      font-weight: 700 !important;
-      letter-spacing: 0.06em !important;
-      text-transform: uppercase !important;
-      font-size: 0.82rem !important;
-      box-shadow: 0 6px 20px -8px rgba(255,107,26,0.6) !important;
-      transition: transform 0.15s ease, box-shadow 0.15s ease !important;
-  }
-  .stDownloadButton button:hover, .stButton button:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 24px -8px rgba(255,107,26,0.85) !important;
-  }
-
-  /* Checkbox accent */
-  .stCheckbox [data-baseweb="checkbox"] [role="checkbox"][aria-checked="true"] {
-      background-color: #FF6B1A !important;
-      border-color: #FF6B1A !important;
-  }
-
-  /* DataFrames */
   div[data-testid="stDataFrame"] {
       border-radius: 12px;
       overflow: hidden;
-      border: 1px solid rgba(245,241,237,0.10);
-  }
-
-  /* Info / alert callouts */
-  div[data-testid="stAlert"] {
-      border-radius: 12px;
-      border-left: 4px solid #FF6B1A;
-      background-color: rgba(255,107,26,0.10) !important;
-      color: #F5F1ED !important;
-  }
-  div[data-testid="stAlert"] * { color: #F5F1ED !important; }
-
-  /* Helpers */
-  .muted {
-      color: rgba(245,241,237,0.88) !important;
-      font-size: 1rem;
-      font-weight: 400;
-      margin-bottom: 1.2rem;
-      max-width: 820px;
-      line-height: 1.55;
-  }
-  .section-rule {
-      height: 3px;
-      width: 64px;
-      background: linear-gradient(90deg, #FF6B1A, #185FA5);
-      border-radius: 2px;
-      margin: 1.2rem 0 0.5rem 0;
   }
 </style>
 """
@@ -561,4 +374,108 @@ with tab3:
         'The margin distribution includes both parameter uncertainty and game-level '
         'noise.</div>',
         unsafe_allow_html=True,
+    )
+
+    c1, c2, c3 = st.columns([2, 2, 1])
+    team_a = c1.selectbox("Team A", teams, index=0)
+    team_b = c2.selectbox("Team B", [t for t in teams if t != team_a], index=0)
+    neutral = c3.checkbox("Neutral site", value=True)
+
+    ia = teams.index(team_a)
+    ib = teams.index(team_b)
+
+    rng = np.random.default_rng(0)
+    hfa_effect = 0.0 if neutral else samples["hfa"]
+
+    mu_a = samples["baseline"] + hfa_effect + samples["off"][:, ia] - samples["def"][:, ib]
+    mu_b = samples["baseline"]              + samples["off"][:, ib] - samples["def"][:, ia]
+    pts_a = rng.normal(mu_a, samples["sigma"])
+    pts_b = rng.normal(mu_b, samples["sigma"])
+    margin = pts_a - pts_b
+
+    win_prob = float((margin > 0).mean())
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(f"P({team_a} wins)", f"{win_prob:.1%}")
+    m2.metric("Mean margin", f"{margin.mean():+.1f} pts")
+    m3.metric("Expected score", f"{pts_a.mean():.0f} – {pts_b.mean():.0f}")
+    m4.metric("Total", f"{(pts_a + pts_b).mean():.1f}")
+
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(
+        x=margin, nbinsx=60, opacity=0.85, name="Margin",
+        marker_color=BRAND["orange"], marker_line_width=0,
+    ))
+    fig.add_vline(x=0, line_dash="dash", line_color=BRAND["muted"],
+                  annotation_text="tie")
+    fig.add_vline(
+        x=float(margin.mean()),
+        line_dash="dot", line_color=BRAND["gold"],
+        annotation_text=f"mean {margin.mean():+.1f}",
+    )
+    fig.update_layout(
+        height=420,
+        xaxis_title=f"Margin ({team_a} − {team_b}, pts)",
+        yaxis_title="Posterior simulations",
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+with tab4:
+    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="muted">Precomputed tournament advancement probabilities '
+        'from posterior simulation.</div>',
+        unsafe_allow_html=True,
+    )
+
+    show = bracket.copy()
+    pcols = ["p_r32", "p_sweet16", "p_elite8", "p_final4", "p_champgame", "p_champ"]
+    for c in pcols:
+        show[c] = (show[c] * 100).round(1).astype(str) + "%"
+
+    show = show[["seed", "region", "team"] + pcols]
+    show.columns = [
+        "Seed", "Region", "Team",
+        "R32", "SWEET 16", "ELITE 8", "FINAL 4", "FINAL", "CHAMPION",
+    ]
+    st.dataframe(show, use_container_width=True, height=540, hide_index=True)
+
+    top12 = bracket.head(12)
+    rounds_labels = ["R32", "SWEET 16", "ELITE 8", "FINAL 4", "FINAL", "CHAMPION"]
+
+    fig = go.Figure()
+    for _, row in top12.iterrows():
+        fig.add_trace(go.Scatter(
+            x=rounds_labels,
+            y=[row[c] for c in pcols],
+            mode="lines+markers",
+            name=f"{row['seed']} {row['team']}",
+            hovertemplate="%{y:.1%}<extra>%{fullData.name}</extra>",
+        ))
+    fig.update_traces(line=dict(width=2.2),
+                      marker=dict(size=7, line=dict(width=1, color=BRAND["navy"])))
+    fig.update_yaxes(tickformat=".0%", range=[0, 1])
+    fig.update_layout(height=480)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+with tab5:
+    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        ### About this model
+
+        This is an interactive companion to the Quarto report. The model assigns
+        each team a latent offense and defense rating and uses a Bayesian
+        hierarchical structure to partially pool ratings by conference.
+
+        A game prediction is computed from posterior samples rather than from a
+        single point estimate. Therefore, the predicted margin and win
+        probability reflect both rating uncertainty and game-level randomness.
+
+        The bracket tab uses precomputed tournament simulations based on the
+        posterior draws.
+        """
     )
