@@ -1224,159 +1224,202 @@ with tab4:
         unsafe_allow_html=True,
     )
     
-    # ---- Draw the bracket using plotly ----
+   # ---- Draw the bracket using plotly ----
+    
+    # Each region gets its own y-band. 4 regions, stacked top to bottom on each side.
+    # But standard NCAA layout puts 2 regions on left (W, X) and 2 on right (Y, Z).
+    # 16 R64 slots per region → we need 16 y-positions per region with breathing room.
+    
+    BAND_HEIGHT  = 17        # vertical units per region (16 slots + padding)
+    GAP_BETWEEN  = 2         # gap between W and X (also Y and Z)
+    
+    def y_for_round1(region_idx, slot):
+        """y position for one of 16 R1 slots in a region.
+        region_idx: 0=W (top-left), 1=X (bot-left), 2=Y (top-right), 3=Z (bot-right).
+        slot: 0..15, top to bottom within the region.
+        """
+        # Top of band depends on region_idx (which side: top or bottom)
+        if region_idx in (0, 2):  # top regions: W, Y
+            top = BAND_HEIGHT * 2 + GAP_BETWEEN
+        else:                      # bottom regions: X, Z
+            top = BAND_HEIGHT
+        return top - slot - 0.5
+    
+    def y_avg(*ys):
+        return sum(ys) / len(ys)
+    
+    # X coordinates: 0,1,2,3 = R64,R32,S16,E8 left;  8,7,6,5 = R64,R32,S16,E8 right
+    # Final Four: x=4 (left F4) and x=4 (right F4) at different y; champion at center
+    
+    BOX_HALF_W = 0.42
+    BOX_HALF_H = 0.36
+    
+    # Detect dark mode by checking if Streamlit is in dark theme
+    # Plotly annotations need explicit colors
+    text_color   = "#F5F1ED"  # light text — works on dark bg; on light bg it's still readable on filled boxes
+    text_dark    = "#1F2230"
+    win_fill     = "rgba(255, 107, 26, 0.85)"
+    win_line     = "#FF6B1A"
+    lose_fill    = "rgba(24, 95, 165, 0.20)"
+    lose_line    = "#5B89B8"
+    line_color   = "rgba(150, 150, 160, 0.45)"
+    
     fig = go.Figure()
     
-    # Coordinate system: x = round (0=R64, 6=champion), y = vertical position
-    # Left side: regions W and X (top to bottom: W on top, X on bottom)
-    # Right side: regions Y and Z  
-    # We mirror the right side (rounds go right-to-left from x=6)
-    
-    def add_game_box(fig, x, y, team_dict, won=False):
-        """Add a single game-result box at position (x, y)."""
+    def add_box(x, y, team_dict, won):
         if team_dict is None:
             label = "?"
-            seed_str = ""
         else:
-            label = team_dict["team"]
-            seed_str = f"#{team_dict['seed_num']}"
+            label = f"#{team_dict['seed_num']} {team_dict['team']}"
         
-        color = "#FF6B1A" if won else "#185FA5"
-        bgcolor = "rgba(255, 107, 26, 0.15)" if won else "rgba(24, 95, 165, 0.10)"
+        fill = win_fill if won else lose_fill
+        line = win_line if won else lose_line
+        txt  = "#FFFFFF" if won else text_color
         
         fig.add_shape(
             type="rect",
-            x0=x - 0.45, y0=y - 0.18,
-            x1=x + 0.45, y1=y + 0.18,
-            line=dict(color=color, width=1.5),
-            fillcolor=bgcolor,
+            x0=x - BOX_HALF_W, y0=y - BOX_HALF_H,
+            x1=x + BOX_HALF_W, y1=y + BOX_HALF_H,
+            line=dict(color=line, width=1.2),
+            fillcolor=fill,
+            layer="below",
         )
         fig.add_annotation(
-            x=x, y=y,
-            text=f"<b>{seed_str}</b> {label}",
+            x=x, y=y, text=f"<b>{label}</b>",
             showarrow=False,
-            font=dict(size=10, color="#1F2230"),
+            font=dict(size=9.5, color=txt, family="Inter"),
         )
     
-    # Draw left half (W on top, X on bottom)
-    # Round 1: 16 teams (8 per region)
-    # Round positions: x=0 R64, x=1 R32, x=2 S16, x=3 E8, x=4 F4, x=5 final, x=6 champion
+    def add_connector(x1, y1, x2, y2):
+        """Draw an L-shaped line from (x1,y1) to (x2,y2)."""
+        x_mid = (x1 + x2) / 2
+        fig.add_shape(type="line", x0=x1 + BOX_HALF_W, y0=y1, x1=x_mid, y1=y1,
+                      line=dict(color=line_color, width=1))
+        fig.add_shape(type="line", x0=x_mid, y0=y1, x1=x_mid, y1=y2,
+                      line=dict(color=line_color, width=1))
+        fig.add_shape(type="line", x0=x_mid, y0=y2, x1=x2 - BOX_HALF_W, y1=y2,
+                      line=dict(color=line_color, width=1))
     
-    # ---- Layout: each region has 16 R64 slots ----
-    # We draw W in y from 30 down to 0
-    # Then X in y from -1 down to -31
-    # Right side: Y from 30 down to 0, Z from -1 down to -31, mirrored x
+    # ---- Render each region ----
+    LEFT_REGIONS  = [("W", 0, [0, 1, 2, 3]),  ("X", 1, [0, 1, 2, 3])]
+    RIGHT_REGIONS = [("Y", 2, [8, 7, 6, 5]),  ("Z", 3, [8, 7, 6, 5])]
     
-    # Helper: y position for R64 game in a region (8 games)
-    def y_pos(region_idx, game_in_round, total_in_round):
-        """Region 0,1,2,3 = W, X, Y, Z. Returns y for game_in_round of total."""
-        region_height = 8  # 8 games per region in R1
-        # Vertical span per region: 16 units (with some padding)
-        spacing = 16 / total_in_round
-        offset_within = (game_in_round + 0.5) * spacing
-        if region_idx == 0:    # W: y in [16, 32]
-            return 32 - offset_within
-        elif region_idx == 1:  # X: y in [0, 16]
-            return 16 - offset_within
-        elif region_idx == 2:  # Y: y in [16, 32]
-            return 32 - offset_within
-        else:                  # Z: y in [0, 16]
-            return 16 - offset_within
+    region_e8_y = {}  # for connecting to F4
     
-    REGION_X_LEFT  = [0, 1, 2, 3]   # x for R64, R32, S16, E8 on left half
-    REGION_X_RIGHT = [6, 5, 4, 3]   # x for R64, R32, S16, E8 on right half (mirrored)
-    F4_X = [4, 4]                   # F4 game x positions (sort of, we tweak)
-    
-    # Draw W and X on left
-    for r_idx, region in enumerate(["W", "X"]):
+    for region, r_idx, x_cols in LEFT_REGIONS + RIGHT_REGIONS:
         rr = region_results[region]
+        is_left = region in ("W", "X")
         
-        # R1
-        for i in range(8):
-            tA = get_seed_team(region, R1_PAIRS[i][0])
-            tB = get_seed_team(region, R1_PAIRS[i][1])
-            yA = y_pos(r_idx, 2*i, 16)
-            yB = y_pos(r_idx, 2*i + 1, 16)
-            winner = rr["r1"][i]
-            add_game_box(fig, 0, yA, tA, won=(winner == tA))
-            add_game_box(fig, 0, yB, tB, won=(winner == tB))
+        # R1: 16 boxes at x_cols[0]
+        r1_ys = []
+        for game_i, (hi, lo) in enumerate(R1_PAIRS):
+            tA = get_seed_team(region, hi)
+            tB = get_seed_team(region, lo)
+            yA = y_for_round1(r_idx, 2 * game_i)
+            yB = y_for_round1(r_idx, 2 * game_i + 1)
+            r1_ys.append((yA, yB, tA, tB, rr["r1"][game_i]))
+            add_box(x_cols[0], yA, tA, won=(rr["r1"][game_i] == tA))
+            add_box(x_cols[0], yB, tB, won=(rr["r1"][game_i] == tB))
         
-        # R2
-        for i in range(4):
-            y = y_pos(r_idx, i, 4)
-            add_game_box(fig, 1, y, rr["r2"][i], won=True)
+        # R2: 8 boxes at x_cols[1]
+        r2_ys = []
+        for game_i in range(8):
+            yA, yB, _, _, winner = r1_ys[game_i]
+            y_r2 = y_avg(yA, yB)
+            r2_ys.append(y_r2)
+            add_box(x_cols[1], y_r2, winner, won=True)
+            # Connectors from R1 to R2
+            add_connector(x_cols[0], yA, x_cols[1], y_r2)
+            add_connector(x_cols[0], yB, x_cols[1], y_r2)
         
-        # S16
-        for i in range(2):
-            y = y_pos(r_idx, i, 2)
-            add_game_box(fig, 2, y, rr["s16"][i], won=True)
+        # S16: 4 boxes at x_cols[2]
+        s16_ys = []
+        for i in range(0, 8, 2):
+            y_s16 = y_avg(r2_ys[i], r2_ys[i + 1])
+            s16_ys.append(y_s16)
+            winner = rr["s16"][i // 2]
+            add_box(x_cols[2], y_s16, winner, won=True)
+            add_connector(x_cols[1], r2_ys[i], x_cols[2], y_s16)
+            add_connector(x_cols[1], r2_ys[i + 1], x_cols[2], y_s16)
         
-        # E8 (regional final)
-        y = y_pos(r_idx, 0, 1)
-        add_game_box(fig, 3, y, rr["e8"], won=True)
+        # E8: 1 box at x_cols[3]
+        y_e8 = y_avg(*s16_ys)
+        add_box(x_cols[3], y_e8, rr["e8"], won=True)
+        for y_s16 in s16_ys:
+            add_connector(x_cols[2], y_s16, x_cols[3], y_e8)
+        region_e8_y[region] = y_e8
     
-    # Draw Y and Z on right (mirror x)
-    for r_idx, region in enumerate(["Y", "Z"]):
-        rr = region_results[region]
-        actual_idx = r_idx + 2  # Y=2, Z=3
-        
-        for i in range(8):
-            tA = get_seed_team(region, R1_PAIRS[i][0])
-            tB = get_seed_team(region, R1_PAIRS[i][1])
-            yA = y_pos(actual_idx, 2*i, 16)
-            yB = y_pos(actual_idx, 2*i + 1, 16)
-            winner = rr["r1"][i]
-            add_game_box(fig, 8, yA, tA, won=(winner == tA))
-            add_game_box(fig, 8, yB, tB, won=(winner == tB))
-        
-        for i in range(4):
-            y = y_pos(actual_idx, i, 4)
-            add_game_box(fig, 7, y, rr["r2"][i], won=True)
-        
-        for i in range(2):
-            y = y_pos(actual_idx, i, 2)
-            add_game_box(fig, 6, y, rr["s16"][i], won=True)
-        
-        y = y_pos(actual_idx, 0, 1)
-        add_game_box(fig, 5, y, rr["e8"], won=True)
+    # ---- Final Four ----
+    f4_top_y = y_avg(region_e8_y["W"], region_e8_y["X"])
+    f4_bot_y = y_avg(region_e8_y["Y"], region_e8_y["Z"])
     
-    # Final Four: 2 games in middle
-    add_game_box(fig, 4, 12, f4_a, won=(champion == f4_a))
-    add_game_box(fig, 4, 4,  f4_b, won=(champion == f4_b))
+    add_box(4, f4_top_y, f4_a, won=(champion == f4_a))
+    add_box(4, f4_bot_y, f4_b, won=(champion == f4_b))
+    add_connector(3, region_e8_y["W"], 4, f4_top_y)
+    add_connector(3, region_e8_y["X"], 4, f4_top_y)
+    add_connector(5, region_e8_y["Y"], 4, f4_bot_y)
+    add_connector(5, region_e8_y["Z"], 4, f4_bot_y)
     
-    # Champion in center
+    # ---- Champion (bigger box, gold) ----
+    champ_y = y_avg(f4_top_y, f4_bot_y)
     fig.add_shape(
         type="rect",
-        x0=3.5, y0=7.5, x1=4.5, y1=8.5,
-        line=dict(color="#FFD700", width=3),
-        fillcolor="rgba(255, 215, 0, 0.20)",
+        x0=4 - 0.55, y0=champ_y - 0.55,
+        x1=4 + 0.55, y1=champ_y + 0.55,
+        line=dict(color="#F4D35E", width=2.5),
+        fillcolor="rgba(244, 211, 94, 0.85)",
     )
     fig.add_annotation(
-        x=4, y=8,
-        text=f"🏆<br><b>{champion['team']}</b>",
+        x=4, y=champ_y + 0.18,
+        text="🏆",
         showarrow=False,
-        font=dict(size=14, color="#1F2230"),
+        font=dict(size=18),
     )
+    fig.add_annotation(
+        x=4, y=champ_y - 0.22,
+        text=f"<b>{champion['team']}</b>",
+        showarrow=False,
+        font=dict(size=11, color="#1F2230", family="Inter"),
+    )
+    add_connector(4, f4_top_y, 4, champ_y + 0.55)
+    add_connector(4, f4_bot_y, 4, champ_y - 0.55)
+    
+    # ---- Round labels at top ----
+    round_labels = ["R64", "R32", "S16", "E8", "F4", "E8", "S16", "R32", "R64"]
+    label_y = BAND_HEIGHT * 2 + GAP_BETWEEN + 1.0
+    for i, lbl in enumerate(round_labels):
+        fig.add_annotation(
+            x=i, y=label_y,
+            text=f"<b>{lbl}</b>",
+            showarrow=False,
+            font=dict(size=11, color="#888780", family="Inter"),
+        )
+    
+    # ---- Region labels (south side of each band) ----
+    REGION_FULL = {"W": "South", "X": "East", "Y": "Midwest", "Z": "West"}
+    for region, r_idx, x_cols in LEFT_REGIONS + RIGHT_REGIONS:
+        if r_idx in (0, 2):
+            yreg = BAND_HEIGHT * 2 + GAP_BETWEEN - 0.3
+        else:
+            yreg = BAND_HEIGHT - 0.3
+        fig.add_annotation(
+            x=x_cols[0] + 1.0, y=yreg,
+            text=f"<b>{REGION_FULL.get(region, region)} ({region})</b>",
+            showarrow=False,
+            font=dict(size=10, color="#888780", family="Inter"),
+            xanchor="left",
+        )
     
     fig.update_layout(
-        height=900,
+        height=1100,
         showlegend=False,
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.6, 8.6]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-1, 33]),
-        margin=dict(l=10, r=10, t=20, b=20),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[-0.7, 8.7]),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False,
+                   range=[0, BAND_HEIGHT * 2 + GAP_BETWEEN + 2]),
+        margin=dict(l=10, r=10, t=20, b=10),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
     )
-    
-    # Round labels at top
-    round_labels = ["R64", "R32", "S16", "E8", "F4", "E8", "S16", "R32", "R64"]
-    for i, lbl in enumerate(round_labels):
-        fig.add_annotation(
-            x=i, y=33,
-            text=f"<b>{lbl}</b>",
-            showarrow=False,
-            font=dict(size=11, color="#888780"),
-        )
     
     st.plotly_chart(fig, use_container_width=True)
     
