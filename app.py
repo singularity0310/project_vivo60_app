@@ -1167,14 +1167,21 @@ with tab2:
 with tab3:
     st.markdown(
         "Pick two teams and simulate a possible matchup. "
-        "The chart shows the range of possible point margins."
-    )
+        "Neutral site means neither team gets home-court advantage."
+        )
 
     c1, c2, c3 = st.columns([2, 2, 1])
 
     team_a = c1.selectbox("Team A", teams, index=0)
     team_b = c2.selectbox("Team B", teams, index=1)
-    neutral = c3.checkbox("Neutral site", value=True)
+    neutral = c3.checkbox(
+        "Neutral site",
+        value=True,
+        help=(
+            "If checked, the game is treated as being played at a neutral location. "
+            "If unchecked, Team A is treated as the home team and gets home-court advantage."
+            ),
+)
 
     if team_a == team_b:
         st.warning("Pick two different teams.")
@@ -1206,12 +1213,9 @@ with tab3:
         margin = pts_a - pts_b
         win_prob = float((margin > 0).mean())
 
-        m1, m2, m3, m4 = st.columns(4)
-
-        m1.metric(f"P({team_a} wins)", f"{win_prob:.1%}")
-        m2.metric("Mean margin", f"{margin.mean():+.1f} pts")
-        m3.metric("Expected score", f"{pts_a.mean():.0f} – {pts_b.mean():.0f}")
-        m4.metric("Total", f"{(pts_a + pts_b).mean():.1f}")
+        m1, m2 = st.columns(2)
+        m1.metric("P(Team A wins)", f"{win_prob:.1%}")
+        m2.metric("Projected score", f"{pts_a.mean():.0f} – {pts_b.mean():.0f}")
 
         fig = go.Figure()
 
@@ -1225,11 +1229,6 @@ with tab3:
             )
         )
 
-        fig.add_vline(
-            x=0,
-            line_dash="dash",
-            annotation_text="tie",
-        )
 
         fig.add_vline(
             x=float(margin.mean()),
