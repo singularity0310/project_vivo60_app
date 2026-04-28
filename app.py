@@ -23,15 +23,17 @@ import streamlit as st
 import plotly.io as pio
 from streamlit_lottie import st_lottie
 
+
 # ============================================================
 # Page setup
 # ============================================================
 
 st.set_page_config(
-    page_title="NCAA Bayesian · M 2025",
+    page_title="March Madness Forecast · 2025",
     layout="wide",
     page_icon="🏀",
 )
+
 
 BRAND = {
     "orange": "#FF6B1A",
@@ -41,6 +43,7 @@ BRAND = {
     "cream": "#F5F1ED",
     "muted": "#7A8294",
 }
+
 
 pio.templates["mm"] = go.layout.Template(
     layout=dict(
@@ -78,7 +81,7 @@ pio.templates.default = "plotly+mm"
 
 
 # ============================================================
-# Intro animation (only on first load)
+# Intro animation
 # ============================================================
 
 @st.cache_data(show_spinner=False)
@@ -91,9 +94,6 @@ def load_lottie_url(url: str):
         return None
 
 
-# Pick any Lottie URL you like from https://lottiefiles.com
-# Below is a basketball-themed animation that works well for an intro.
-# To swap: go to lottiefiles.com, find an animation, click "Lottie Animation URL".
 LOTTIE_URL = "https://lottie.host/4be0d36e-7a9e-4f3a-9b5e-3f8e7a1b9c5d/basketball.json"
 LOTTIE_FALLBACK = "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
 
@@ -116,11 +116,13 @@ if not st.session_state.intro_played:
                   80%  { opacity: 1; }
                   100% { opacity: 0; }
               }
+
               .intro-wrap {
                   text-align: center;
                   padding-top: 4rem;
                   animation: introFade 2.6s ease-in-out both;
               }
+
               .intro-title {
                   font-family: 'Bebas Neue', 'Inter', sans-serif;
                   font-size: 2.3rem;
@@ -128,15 +130,17 @@ if not st.session_state.intro_played:
                   color: #FF6B1A;
                   margin-bottom: 0.4rem;
               }
+
               .intro-subtitle {
                   color: #7A8294;
                   font-size: 1rem;
                   font-weight: 500;
               }
             </style>
+
             <div class="intro-wrap">
-                <div class="intro-title">NCAA BAYESIAN · M 2025</div>
-                <div class="intro-subtitle">Simulating 4,000 tournaments&hellip;</div>
+                <div class="intro-title">MARCH MADNESS FORECAST</div>
+                <div class="intro-subtitle">Loading the bracket...</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -151,7 +155,6 @@ if not st.session_state.intro_played:
                 key="intro_lottie",
             )
         else:
-            # Fallback: fake progress bar if Lottie can't be fetched
             bar = st.progress(0)
             for i in range(100):
                 time.sleep(0.018)
@@ -250,12 +253,6 @@ CSS = """
       to   { transform: translateY(0); opacity: 1; }
   }
 
-  @keyframes chipPop {
-      0%   { opacity: 0; transform: scale(0.7); }
-      60%  { opacity: 1; transform: scale(1.08); }
-      100% { opacity: 1; transform: scale(1); }
-  }
-
   @keyframes fadeInUp {
       from { opacity: 0; transform: translateY(10px); }
       to   { opacity: 1; transform: translateY(0); }
@@ -264,7 +261,7 @@ CSS = """
   .hero {
       background: linear-gradient(135deg, #FF6B1A 0%, #D85A30 48%, #185FA5 100%);
       border-radius: 16px;
-      padding: 1.35rem 1.8rem 1.25rem 1.8rem;
+      padding: 1.25rem 1.8rem;
       margin-bottom: 1.4rem;
       box-shadow: 0 12px 42px -14px rgba(255, 107, 26, 0.45);
       position: relative;
@@ -282,26 +279,9 @@ CSS = """
       pointer-events: none;
   }
 
-  .hero-chip {
-      display: inline-block;
-      background: rgba(255,255,255,0.22);
-      color: #FFFFFF !important;
-      font-size: 0.74rem;
-      font-weight: 750;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      padding: 0.28rem 0.75rem;
-      border-radius: 999px;
-      margin-bottom: 0.55rem;
-      border: 1px solid rgba(255,255,255,0.30);
-      position: relative;
-      z-index: 1;
-      animation: chipPop 0.6s ease-out 0.35s both;
-  }
-
-  .hero-title {
+  .app-hero-title {
       font-family: 'Bebas Neue', sans-serif !important;
-      font-size: 2.65rem !important;
+      font-size: 2.75rem !important;
       letter-spacing: 0.045em !important;
       color: #FFFFFF !important;
       -webkit-text-fill-color: #FFFFFF !important;
@@ -312,15 +292,26 @@ CSS = """
       z-index: 1;
   }
 
-  .hero-subtitle {
-      color: rgba(255,255,255,0.94) !important;
-      font-size: 0.98rem;
-      font-weight: 500;
-      margin-top: 0.55rem;
-      max-width: 860px;
-      position: relative;
-      z-index: 1;
-      animation: fadeInUp 0.8s ease-out 0.6s both;
+  .hero-card {
+      background: linear-gradient(135deg, rgba(255, 107, 26, 0.13), rgba(24, 95, 165, 0.08));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.05rem 1.25rem;
+      margin-bottom: 1.2rem;
+      box-shadow: 0 8px 22px rgba(0,0,0,0.05);
+  }
+
+  .hero-card-title {
+      color: var(--text-strong) !important;
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin-bottom: 0.25rem;
+  }
+
+  .hero-card-subtitle {
+      color: var(--muted) !important;
+      font-size: 0.95rem;
+      line-height: 1.5;
   }
 
   .muted {
@@ -655,12 +646,10 @@ def logo_html(team, centered=False):
 
     if url is not None:
         klass = "team-logo-center" if centered else "team-logo"
-        return f'<img class="{klass}" src="{url}" alt="{team} logo">'
+        return f'<img class="{klass}" src="{url}" alt="{html.escape(team)} logo">'
 
     badge_class = "logo-badge-center" if centered else "logo-badge"
-    return f'<div class="{badge_class}">{team_initials(team)}</div>'
-
-
+    return f'<div class="{badge_class}">{html.escape(team_initials(team))}</div>'
 
 
 def show_small_card(title, value, subtitle=""):
@@ -788,16 +777,12 @@ for col in ["Offense", "Defense", "Net", "Net 5%", "Net 95%", "Uncertainty"]:
 st.markdown(
     f"""
     <div class="hero">
-        <div class="hero-chip">Bayesian Bracket Forecast</div>
-        <h1 class="hero-title">NCAA Bayesian · {gender} {season}</h1>
-        <div class="hero-subtitle">
-            A March Madness dashboard powered by Bayesian offense / defense ratings,
-            posterior predictive simulation, and bracket advancement probabilities.
-        </div>
+        <h1 class="app-hero-title">🏀 March Madness Forecast · {season}</h1>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["Overview", "Team ratings", "Predict", "Bracket", "About"]
@@ -823,18 +808,28 @@ with tab1:
     )
     c4.metric("Per-game noise", f"{sigma.mean():.2f} pts")
 
-    st.markdown('<div class="metric-strip"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
 
-    st.markdown("## Teams to watch")
+    st.markdown("## Who looks dangerous?")
     st.markdown(
-        '<div class="section-note">A quick, entertainment-first snapshot of the strongest and weakest teams according to the model.</div>',
+        '<div class="section-note">A quick look at the teams the model likes most — and least.</div>',
         unsafe_allow_html=True,
     )
 
     top10 = df.head(10).copy()
     bottom10 = df.tail(10).sort_values("Net", ascending=True).copy()
 
-    st.markdown("### 🔥 Strongest teams")
+    title_col, help_col = st.columns([5, 2])
+
+    with title_col:
+        st.markdown("### 🔥 Strongest teams")
+
+    with help_col:
+        with st.expander("What does strong mean?"):
+            st.write(
+                "A stronger team has a higher Net rating. "
+                "Net combines the team's estimated offense and defense into one overall strength score."
+            )
 
     top3 = top10.head(3)
     top_cols = st.columns(3)
@@ -856,17 +851,12 @@ with tab1:
 
     st.markdown("---")
 
-    st.markdown("### ❄️ Weakest teams")
+    st.markdown("### ❄️ Long shots")
     weak_cols = st.columns(5)
 
     for i, (_, row) in enumerate(bottom10.iterrows()):
         with weak_cols[i % 5]:
             show_weak_card(row)
-
-    st.info(
-        "This overview intentionally hides detailed numbers. "
-        "Use Team ratings for custom tables and Predict for head-to-head simulations."
-    )
 
 
 # ============================================================
@@ -877,10 +867,9 @@ with tab2:
     st.markdown(
         """
         <div class="hero-card">
-            <div class="hero-title">Team Strength Ratings</div>
-            <div class="hero-subtitle">
-                Net rating summarizes overall team strength. Higher values indicate stronger teams.
-                This page keeps the main view simple and lets you create your own table.
+            <div class="hero-card-title">Team Strength Ratings</div>
+            <div class="hero-card-subtitle">
+                See which teams look strongest in the model. Higher rating means a stronger team.
             </div>
         </div>
         """,
@@ -888,39 +877,6 @@ with tab2:
     )
 
     view = df.copy().sort_values("Net", ascending=False).reset_index(drop=True)
-
-    top_team = view.iloc[0]
-    most_uncertain = view.sort_values("Uncertainty", ascending=False).iloc[0]
-    median_net = view["Net"].median()
-
-    st.markdown("### Quick takeaways")
-    st.markdown(
-        '<div class="section-note">Only the most useful information is shown upfront.</div>',
-        unsafe_allow_html=True,
-    )
-
-    s1, s2, s3 = st.columns(3)
-
-    with s1:
-        show_small_card(
-            "Top team",
-            top_team["Team"],
-            f"Net {top_team['Net']:+.2f}",
-        )
-
-    with s2:
-        show_small_card(
-            "Median Net",
-            f"{median_net:+.2f}",
-            f"{len(view)} teams included",
-        )
-
-    with s3:
-        show_small_card(
-            "Most uncertain",
-            most_uncertain["Team"],
-            f"Interval width {most_uncertain['Uncertainty']:.2f}",
-        )
 
     st.markdown("### Net rating ranking")
 
@@ -980,7 +936,7 @@ with tab2:
 
     st.markdown("### Create your own rating table")
     st.markdown(
-        '<div class="section-note">Choose only the columns you want to see. This avoids a large default table.</div>',
+        '<div class="section-note">Choose the columns you want to include.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1031,8 +987,8 @@ with tab2:
 
 with tab3:
     st.markdown(
-        "Simulate a hypothetical game using posterior samples. "
-        "The margin distribution includes both parameter uncertainty and game-level noise."
+        "Pick two teams and simulate a possible matchup. "
+        "The chart shows the range of possible point margins."
     )
 
     c1, c2, c3 = st.columns([2, 2, 1])
@@ -1105,7 +1061,7 @@ with tab3:
         fig.update_layout(
             height=420,
             xaxis_title=f"Margin ({team_a} − {team_b}, pts)",
-            yaxis_title="Posterior simulations",
+            yaxis_title="Simulated games",
             margin=dict(l=50, r=30, t=40, b=50),
             showlegend=False,
         )
@@ -1119,7 +1075,7 @@ with tab3:
 
 with tab4:
     st.markdown(
-        "Precomputed tournament advancement probabilities from posterior simulation."
+        "Tournament advancement chances from repeated bracket simulations."
     )
 
     show = bracket.copy()
@@ -1198,16 +1154,13 @@ with tab4:
 with tab5:
     st.markdown(
         """
-        ### About this model
+        ### About this dashboard
 
-        This is an interactive companion to the Quarto report.
+        This dashboard uses past game data to estimate team strength and simulate future matchups.
 
-        The model assigns each team a latent offense and defense rating.
-        It uses a Bayesian hierarchical structure, so team ratings are partially pooled by conference.
+        Each team gets an estimated offense score and defense score. These are combined into a Net rating,
+        which is used to compare teams and forecast possible game outcomes.
 
-        A game prediction is computed from posterior samples rather than from a single point estimate.
-        Therefore, the predicted margin and win probability reflect both rating uncertainty and game-level randomness.
-
-        The bracket tab uses precomputed tournament simulations based on the posterior draws.
+        The predictions are for entertainment and exploration. They are not guarantees.
         """
     )
