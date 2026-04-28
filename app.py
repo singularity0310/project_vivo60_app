@@ -998,17 +998,19 @@ with tab1:
     top10 = df.head(10).copy()
     bottom10 = df.tail(10).sort_values("Net", ascending=True).copy()
 
-    title_col, help_col = st.columns([5, 2])
+    title_col, help_col = st.columns([0.23, 0.77], vertical_alignment="center")
 
     with title_col:
         st.markdown("### 🔥 Strongest teams")
 
     with help_col:
-        with st.expander("What does strong mean?"):
-            st.write(
-                "A stronger team has a higher Net rating. "
-                "Net combines the team's estimated offense and defense into one overall strength score."
-            )
+        st.caption(
+            "ⓘ",
+            help=(
+                "Stronger teams have higher Net ratings. "
+                "Net combines a team's estimated offense and defense into one overall strength score."
+                ),
+                )
 
     top3 = top10.head(3)
     top_cols = st.columns(3)
@@ -1217,6 +1219,11 @@ with tab3:
         m1.metric("P(Team A wins)", f"{win_prob:.1%}")
         m2.metric("Projected score", f"{pts_a.mean():.0f} – {pts_b.mean():.0f}")
 
+        st.caption(
+            "The histogram shows simulated point differences. "
+            "Values above 0 mean Team A wins; values below 0 mean Team B wins."
+            )
+
         fig = go.Figure()
 
         fig.add_trace(
@@ -1231,14 +1238,14 @@ with tab3:
 
 
         fig.add_vline(
-            x=float(margin.mean()),
-            line_dash="dot",
-            annotation_text=f"mean {margin.mean():+.1f}",
-        )
+            x=0,
+            line_dash="dash",
+            annotation_text="0 = tie",
+            )
 
         fig.update_layout(
             height=420,
-            xaxis_title=f"Margin ({team_a} − {team_b}, pts)",
+            xaxis_title=f"Point difference: Team A score − Team B score ({team_a} − {team_b})",
             yaxis_title="Simulated games",
             margin=dict(l=50, r=30, t=40, b=50),
             showlegend=False,
