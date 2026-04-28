@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
+import plotly.io as pio
 
 # ============================================================
 # Page setup
@@ -30,6 +30,49 @@ st.set_page_config(
     page_icon="🏀",
 )
 
+BRAND = {
+    "orange": "#FF6B1A",
+    "blue": "#185FA5",
+    "navy": "#0B1020",
+    "gold": "#F4D35E",
+    "cream": "#F5F1ED",
+    "muted": "#7A8294",
+}
+
+pio.templates["mm"] = go.layout.Template(
+    layout=dict(
+        font=dict(family="Inter, sans-serif", color=BRAND["muted"], size=13),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        colorway=[
+            BRAND["orange"],
+            BRAND["blue"],
+            BRAND["gold"],
+            "#7DC4E4",
+            "#E89A6B",
+            "#A98ED6",
+            "#5BB99A",
+            "#E26A6A",
+            "#C8B98C",
+            "#6F89C9",
+            "#D87FB1",
+            "#88B07A",
+        ],
+        xaxis=dict(
+            gridcolor="rgba(122,130,148,0.18)",
+            zerolinecolor="rgba(122,130,148,0.30)",
+        ),
+        yaxis=dict(
+            gridcolor="rgba(122,130,148,0.18)",
+            zerolinecolor="rgba(122,130,148,0.30)",
+        ),
+        legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
+        margin=dict(l=50, r=30, t=40, b=50),
+    )
+)
+
+pio.templates.default = "plotly+mm"
+
 
 # ============================================================
 # Theme-aware CSS
@@ -37,141 +80,322 @@ st.set_page_config(
 
 CSS = """
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap');
+
   :root {
-      --app-bg-card: rgba(255, 255, 255, 0.72);
-      --app-bg-soft: rgba(255, 75, 75, 0.08);
-      --app-bg-strong: rgba(255, 75, 75, 0.16);
-      --app-text-muted: rgba(49, 51, 63, 0.68);
-      --app-border: rgba(49, 51, 63, 0.13);
-      --app-shadow: rgba(0, 0, 0, 0.08);
-      --app-accent: #ff4b4b;
-      --app-orange: #ff681f;
-      --app-blue: #2f6fed;
+      --text: #1F2230;
+      --text-strong: #0D1020;
+      --muted: rgba(31, 34, 48, 0.66);
+      --surface: rgba(255, 255, 255, 0.72);
+      --surface-strong: #FFFFFF;
+      --border: rgba(31, 34, 48, 0.14);
+      --grid-line: rgba(31, 34, 48, 0.06);
+      --metric-bg-1: rgba(255, 107, 26, 0.10);
+      --metric-bg-2: rgba(255, 255, 255, 0.85);
+      --orange: #FF6B1A;
+      --blue: #185FA5;
   }
 
   @media (prefers-color-scheme: dark) {
       :root {
-          --app-bg-card: rgba(38, 39, 48, 0.82);
-          --app-bg-soft: rgba(255, 75, 75, 0.13);
-          --app-bg-strong: rgba(255, 75, 75, 0.22);
-          --app-text-muted: rgba(250, 250, 250, 0.64);
-          --app-border: rgba(250, 250, 250, 0.13);
-          --app-shadow: rgba(0, 0, 0, 0.32);
-          --app-accent: #ff4b4b;
+          --text: #F5F1ED;
+          --text-strong: #FFFFFF;
+          --muted: rgba(245, 241, 237, 0.70);
+          --surface: rgba(20, 27, 47, 0.65);
+          --surface-strong: #141B2F;
+          --border: rgba(245, 241, 237, 0.12);
+          --grid-line: rgba(245, 241, 237, 0.06);
+          --metric-bg-1: rgba(255, 107, 26, 0.10);
+          --metric-bg-2: rgba(20, 27, 47, 0.70);
       }
   }
 
+  html, body, [class*="css"] {
+      font-family: 'Inter', sans-serif;
+  }
+
+  .stApp::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+          linear-gradient(var(--grid-line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+      background-size: 64px 64px;
+      pointer-events: none;
+      z-index: 0;
+  }
+
+  .stApp::after {
+      content: "";
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--orange), var(--blue), var(--orange));
+      z-index: 999;
+  }
+
   .block-container {
-      padding-top: 2.2rem;
+      position: relative;
+      z-index: 1;
+      padding-top: 1.4rem;
       padding-bottom: 3rem;
-      max-width: 1200px;
+      max-width: 1240px;
   }
 
-  h1 {
-      font-weight: 700 !important;
-      letter-spacing: -0.035em;
-      margin-bottom: 0.2rem !important;
+  h1, h2, h3, h4 {
+      font-family: 'Inter', sans-serif !important;
+      letter-spacing: -0.02em;
+      color: var(--text-strong) !important;
   }
 
-  h2, h3 {
-      font-weight: 650 !important;
-      letter-spacing: -0.015em;
-  }
+  h1 { font-weight: 700 !important; }
+  h2 { font-weight: 700 !important; }
+  h3 { font-weight: 650 !important; }
 
-  .muted {
-      color: var(--app-text-muted);
-      font-size: 1.02rem;
+  .hero {
+      background: linear-gradient(135deg, #FF6B1A 0%, #D85A30 48%, #185FA5 100%);
+      border-radius: 16px;
+      padding: 1.35rem 1.8rem 1.25rem 1.8rem;
       margin-bottom: 1.4rem;
+      box-shadow: 0 12px 42px -14px rgba(255, 107, 26, 0.45);
+      position: relative;
+      overflow: hidden;
   }
 
-  .section-note {
-      color: var(--app-text-muted);
-      font-size: 0.95rem;
-      margin-top: -0.35rem;
-      margin-bottom: 1rem;
+  .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+          radial-gradient(circle at 88% 30%, rgba(255,255,255,0.25), transparent 38%),
+          radial-gradient(circle at 18% 90%, rgba(255,255,255,0.12), transparent 30%);
+      pointer-events: none;
   }
 
-  .hero-card {
-      background: linear-gradient(
-          135deg,
-          rgba(255, 104, 31, 0.18),
-          rgba(47, 111, 237, 0.10)
-      );
-      border: 1px solid var(--app-border);
-      border-radius: 18px;
-      padding: 1.2rem 1.3rem;
-      box-shadow: 0 8px 24px var(--app-shadow);
-      margin-bottom: 1.2rem;
+  .hero-chip {
+      display: inline-block;
+      background: rgba(255,255,255,0.22);
+      color: #FFFFFF !important;
+      font-size: 0.74rem;
+      font-weight: 750;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.28rem 0.75rem;
+      border-radius: 999px;
+      margin-bottom: 0.55rem;
+      border: 1px solid rgba(255,255,255,0.30);
+      position: relative;
+      z-index: 1;
   }
 
   .hero-title {
-      font-size: 1.15rem;
-      font-weight: 750;
-      margin-bottom: 0.2rem;
+      font-family: 'Bebas Neue', sans-serif !important;
+      font-size: 2.65rem !important;
+      letter-spacing: 0.045em !important;
+      color: #FFFFFF !important;
+      -webkit-text-fill-color: #FFFFFF !important;
+      line-height: 1 !important;
+      margin: 0 !important;
+      text-shadow: 0 2px 14px rgba(0,0,0,0.30);
+      position: relative;
+      z-index: 1;
   }
 
   .hero-subtitle {
-      color: var(--app-text-muted);
+      color: rgba(255,255,255,0.94) !important;
+      font-size: 0.98rem;
+      font-weight: 500;
+      margin-top: 0.55rem;
+      max-width: 860px;
+      position: relative;
+      z-index: 1;
+  }
+
+  .muted {
+      color: var(--muted) !important;
+      font-size: 1rem;
+      font-weight: 400;
+      margin-bottom: 1.2rem;
+      max-width: 820px;
+      line-height: 1.55;
+  }
+
+  .section-note {
+      color: var(--muted) !important;
       font-size: 0.95rem;
+      margin-top: -0.25rem;
+      margin-bottom: 1rem;
+      max-width: 820px;
+      line-height: 1.55;
+  }
+
+  .section-rule {
+      height: 3px;
+      width: 64px;
+      background: linear-gradient(90deg, var(--orange), var(--blue));
+      border-radius: 2px;
+      margin: 1.1rem 0 0.7rem 0;
+  }
+
+  [data-testid="stMetric"] {
+      background: linear-gradient(180deg, var(--metric-bg-1) 0%, var(--metric-bg-2) 100%);
+      border: 1px solid rgba(255, 107, 26, 0.30);
+      border-radius: 13px;
+      padding: 1rem 1.1rem;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.05);
+  }
+
+  [data-testid="stMetric"]:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 107, 26, 0.65);
+      box-shadow: 0 12px 28px rgba(255, 107, 26, 0.12);
+  }
+
+  [data-testid="stMetricValue"] {
+      font-family: 'Bebas Neue', sans-serif !important;
+      font-size: 2.05rem !important;
+      letter-spacing: 0.02em;
+      color: var(--orange) !important;
+  }
+
+  [data-testid="stMetricLabel"] {
+      color: var(--muted) !important;
+      font-size: 0.76rem !important;
+      font-weight: 750 !important;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+  }
+
+  .stTabs [data-baseweb="tab-list"] {
+      gap: 0.3rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.4rem;
+  }
+
+  .stTabs [data-baseweb="tab"] {
+      padding: 0.7rem 1.2rem !important;
+      font-weight: 750 !important;
+      font-size: 0.92rem !important;
+      letter-spacing: 0.06em !important;
+      text-transform: uppercase !important;
+      color: var(--text) !important;
+      opacity: 0.65;
+      border-radius: 10px 10px 0 0 !important;
+      transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  }
+
+  .stTabs [data-baseweb="tab"] p {
+      color: inherit !important;
+      font-weight: 750 !important;
+      font-size: 0.92rem !important;
+  }
+
+  .stTabs [data-baseweb="tab"]:hover {
+      opacity: 1;
+      color: var(--orange) !important;
+      background: rgba(255, 107, 26, 0.08);
+  }
+
+  .stTabs [aria-selected="true"] {
+      color: var(--orange) !important;
+      opacity: 1 !important;
+      border-bottom: 3px solid var(--orange) !important;
+      background: rgba(255, 107, 26, 0.10);
+  }
+
+  .stTabs [aria-selected="true"] p {
+      color: var(--orange) !important;
+  }
+
+  span[data-baseweb="tag"] {
+      background-color: var(--orange) !important;
+      color: #FFFFFF !important;
+      border-radius: 999px !important;
+      font-weight: 650 !important;
+  }
+
+  span[data-baseweb="tag"] svg {
+      fill: #FFFFFF !important;
+  }
+
+  div[data-testid="stDataFrame"] {
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.05);
   }
 
   .small-card {
-      background: var(--app-bg-card);
-      border: 1px solid var(--app-border);
+      background: linear-gradient(180deg, rgba(255, 107, 26, 0.08), var(--surface));
+      border: 1px solid rgba(255, 107, 26, 0.26);
       border-radius: 16px;
       padding: 1rem;
-      box-shadow: 0 6px 18px var(--app-shadow);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
       min-height: 105px;
   }
 
   .small-label {
-      color: var(--app-text-muted);
-      font-size: 0.78rem;
-      font-weight: 700;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 750;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.08em;
       margin-bottom: 0.35rem;
   }
 
   .small-value {
+      color: var(--text-strong);
       font-size: 1.12rem;
-      font-weight: 780;
+      font-weight: 800;
       line-height: 1.15;
       margin-bottom: 0.25rem;
   }
 
   .small-sub {
-      color: var(--app-text-muted);
+      color: var(--muted);
       font-size: 0.86rem;
   }
 
   .overview-top-card {
-      background: linear-gradient(
-          135deg,
-          rgba(255, 104, 31, 0.28),
-          rgba(255, 190, 70, 0.12)
-      );
-      border: 1px solid rgba(255, 104, 31, 0.34);
+      background: linear-gradient(135deg, rgba(255, 107, 26, 0.25), rgba(24, 95, 165, 0.10));
+      border: 1px solid rgba(255, 107, 26, 0.36);
       border-radius: 22px;
       padding: 1.15rem;
-      min-height: 235px;
-      box-shadow: 0 12px 30px var(--app-shadow);
+      min-height: 245px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
       margin-bottom: 0.8rem;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .overview-top-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(255, 107, 26, 0.70);
+      box-shadow: 0 16px 38px rgba(255, 107, 26, 0.14);
   }
 
   .overview-small-top {
-      background: rgba(255, 104, 31, 0.12);
-      border: 1px solid rgba(255, 104, 31, 0.23);
+      background: linear-gradient(180deg, rgba(255, 107, 26, 0.12), var(--surface));
+      border: 1px solid rgba(255, 107, 26, 0.26);
       border-radius: 18px;
       padding: 0.9rem;
-      min-height: 155px;
+      min-height: 158px;
       text-align: center;
       margin-bottom: 0.8rem;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+
+  .overview-small-top:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 107, 26, 0.55);
   }
 
   .overview-weak-card {
-      background: rgba(47, 111, 237, 0.10);
-      border: 1px solid rgba(47, 111, 237, 0.20);
+      background: linear-gradient(180deg, rgba(24, 95, 165, 0.10), var(--surface));
+      border: 1px solid rgba(24, 95, 165, 0.23);
       border-radius: 15px;
       padding: 0.82rem;
       min-height: 108px;
@@ -180,28 +404,30 @@ CSS = """
   }
 
   .team-logo {
-      width: 68px;
-      height: 68px;
+      width: 72px;
+      height: 72px;
       object-fit: contain;
       display: block;
       margin-bottom: 0.8rem;
+      filter: drop-shadow(0 6px 10px rgba(0,0,0,0.18));
   }
 
   .team-logo-center {
-      width: 56px;
-      height: 56px;
+      width: 58px;
+      height: 58px;
       object-fit: contain;
       display: block;
       margin-left: auto;
       margin-right: auto;
       margin-bottom: 0.55rem;
+      filter: drop-shadow(0 5px 8px rgba(0,0,0,0.16));
   }
 
   .logo-badge {
-      width: 68px;
-      height: 68px;
+      width: 72px;
+      height: 72px;
       border-radius: 50%;
-      background: linear-gradient(135deg, rgba(255,104,31,0.92), rgba(47,111,237,0.88));
+      background: linear-gradient(135deg, var(--orange), var(--blue));
       color: white;
       display: flex;
       align-items: center;
@@ -209,13 +435,14 @@ CSS = """
       font-weight: 850;
       font-size: 1.25rem;
       margin-bottom: 0.8rem;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.16);
   }
 
   .logo-badge-center {
-      width: 56px;
-      height: 56px;
+      width: 58px;
+      height: 58px;
       border-radius: 50%;
-      background: linear-gradient(135deg, rgba(255,104,31,0.92), rgba(47,111,237,0.88));
+      background: linear-gradient(135deg, var(--orange), var(--blue));
       color: white;
       display: flex;
       align-items: center;
@@ -225,73 +452,45 @@ CSS = """
       margin-left: auto;
       margin-right: auto;
       margin-bottom: 0.55rem;
+      box-shadow: 0 7px 14px rgba(0,0,0,0.14);
   }
 
   .rank-label {
-      color: var(--app-text-muted);
+      color: var(--muted);
       font-size: 0.82rem;
       font-weight: 800;
-      letter-spacing: 0.03em;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
   }
 
   .top-team-name {
-      font-size: 1.45rem;
+      color: var(--text-strong);
+      font-size: 1.48rem;
       font-weight: 880;
       line-height: 1.12;
       margin-top: 0.3rem;
   }
 
   .small-team-name {
+      color: var(--text-strong);
       font-size: 0.98rem;
       font-weight: 820;
       line-height: 1.12;
   }
 
   .card-subtitle {
-      color: var(--app-text-muted);
+      color: var(--muted);
       font-size: 0.84rem;
       margin-top: 0.35rem;
   }
 
   .metric-strip {
       height: 4px;
-      width: 65px;
+      width: 70px;
       border-radius: 100px;
-      background: linear-gradient(90deg, var(--app-orange), var(--app-blue));
+      background: linear-gradient(90deg, var(--orange), var(--blue));
       margin-top: 0.4rem;
       margin-bottom: 1.4rem;
-  }
-
-  .stTabs [data-baseweb="tab-list"] {
-      gap: 1.2rem;
-      border-bottom: 1px solid var(--app-border);
-  }
-
-  .stTabs [data-baseweb="tab"] {
-      padding: 0.7rem 0.15rem 0.65rem 0.15rem;
-      font-weight: 650;
-      font-size: 0.95rem;
-  }
-
-  .stTabs [aria-selected="true"] {
-      color: var(--app-orange);
-      border-bottom: 2px solid var(--app-orange);
-  }
-
-  [data-testid="stMetricValue"] {
-      font-size: 1.7rem;
-      font-weight: 750;
-      color: var(--app-orange);
-  }
-
-  [data-testid="stMetricLabel"] {
-      color: var(--app-text-muted);
-      font-size: 0.86rem;
-  }
-
-  div[data-testid="stDataFrame"] {
-      border-radius: 12px;
-      overflow: hidden;
   }
 </style>
 """
@@ -477,12 +676,15 @@ for col in ["Offense", "Defense", "Net", "Net 5%", "Net 95%", "Uncertainty"]:
 # Header
 # ============================================================
 
-st.title(f"🏀 NCAA Bayesian · {gender} {season}")
-
 st.markdown(
-    """
-    <div class="muted">
-    Hierarchical offense / defense model · partial pooling by conference · uncertainty-aware predictions.
+    f"""
+    <div class="hero">
+        <div class="hero-chip">Bayesian Bracket Forecast</div>
+        <h1 class="hero-title">NCAA Bayesian · {gender} {season}</h1>
+        <div class="hero-subtitle">
+            A March Madness dashboard powered by Bayesian offense / defense ratings,
+            posterior predictive simulation, and bracket advancement probabilities.
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
