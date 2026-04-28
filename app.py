@@ -18,10 +18,8 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import requests
 import streamlit as st
 import plotly.io as pio
-from streamlit_lottie import st_lottie
 
 
 # ============================================================
@@ -81,88 +79,156 @@ pio.templates.default = "plotly+mm"
 
 
 # ============================================================
-# Intro animation
+# Full-screen intro overlay (only on first load)
 # ============================================================
-
-@st.cache_data(show_spinner=False)
-def load_lottie_url(url: str):
-    """Fetch a Lottie animation JSON from a public URL."""
-    try:
-        r = requests.get(url, timeout=5)
-        return r.json() if r.status_code == 200 else None
-    except Exception:
-        return None
-
-
-LOTTIE_URL = "https://lottie.host/4be0d36e-7a9e-4f3a-9b5e-3f8e7a1b9c5d/basketball.json"
-LOTTIE_FALLBACK = "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
-
 
 if "intro_played" not in st.session_state:
     st.session_state.intro_played = False
 
 if not st.session_state.intro_played:
-    intro_anim = load_lottie_url(LOTTIE_URL) or load_lottie_url(LOTTIE_FALLBACK)
+    st.markdown(
+        """
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;700;800&display=swap');
 
-    placeholder = st.empty()
+          @keyframes overlayFadeOut {
+              0%, 75% { opacity: 1; }
+              100%    { opacity: 0; visibility: hidden; }
+          }
+          @keyframes ballBounce {
+              0%, 100% { transform: translateY(0) rotate(0deg); }
+              25%      { transform: translateY(-40px) rotate(90deg); }
+              50%      { transform: translateY(0) rotate(180deg); }
+              75%      { transform: translateY(-25px) rotate(270deg); }
+          }
+          @keyframes titleRise {
+              from { opacity: 0; transform: translateY(30px); }
+              to   { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes subtitleFade {
+              0%, 30% { opacity: 0; transform: translateY(15px); }
+              100%    { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes dotPulse {
+              0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+              40%           { opacity: 1; transform: scale(1.15); }
+          }
+          @keyframes bgShift {
+              0%   { background-position: 0% 50%; }
+              50%  { background-position: 100% 50%; }
+              100% { background-position: 0% 50%; }
+          }
 
-    with placeholder.container():
-        st.markdown(
-            """
-            <style>
-              @keyframes introFade {
-                  0%   { opacity: 0; }
-                  20%  { opacity: 1; }
-                  80%  { opacity: 1; }
-                  100% { opacity: 0; }
-              }
+          .intro-overlay {
+              position: fixed;
+              top: 0; left: 0; right: 0; bottom: 0;
+              background: linear-gradient(135deg, #FF6B1A 0%, #D85A30 35%, #185FA5 100%);
+              background-size: 200% 200%;
+              animation:
+                  bgShift 6s ease-in-out infinite,
+                  overlayFadeOut 4.0s ease-in-out forwards;
+              z-index: 9999;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+          }
 
-              .intro-wrap {
-                  text-align: center;
-                  padding-top: 4rem;
-                  animation: introFade 2.6s ease-in-out both;
-              }
+          .intro-overlay::before {
+              content: "";
+              position: absolute;
+              inset: 0;
+              background-image:
+                  radial-gradient(circle at 22% 18%, rgba(255,255,255,0.15), transparent 35%),
+                  radial-gradient(circle at 80% 82%, rgba(255,255,255,0.10), transparent 30%);
+              pointer-events: none;
+          }
 
-              .intro-title {
-                  font-family: 'Bebas Neue', 'Inter', sans-serif;
-                  font-size: 2.3rem;
-                  letter-spacing: 0.05em;
-                  color: #FF6B1A;
-                  margin-bottom: 0.4rem;
-              }
+          .intro-ball {
+              font-size: 5.5rem;
+              animation: ballBounce 1.4s ease-in-out infinite;
+              margin-bottom: 1.5rem;
+              filter: drop-shadow(0 8px 18px rgba(0,0,0,0.35));
+          }
 
-              .intro-subtitle {
-                  color: #7A8294;
-                  font-size: 1rem;
-                  font-weight: 500;
-              }
-            </style>
+          .intro-chip {
+              display: inline-block;
+              background: rgba(255,255,255,0.22);
+              color: #FFFFFF;
+              font-family: 'Inter', sans-serif;
+              font-size: 0.8rem;
+              font-weight: 750;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              padding: 0.35rem 1rem;
+              border-radius: 999px;
+              margin-bottom: 1rem;
+              border: 1px solid rgba(255,255,255,0.32);
+              animation: subtitleFade 1.4s ease-out 0.2s both;
+          }
 
-            <div class="intro-wrap">
-                <div class="intro-title">MARCH MADNESS FORECAST</div>
-                <div class="intro-subtitle">Loading the bracket...</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+          .intro-title {
+              font-family: 'Bebas Neue', sans-serif;
+              font-size: 4.2rem;
+              letter-spacing: 0.06em;
+              color: #FFFFFF;
+              margin: 0 0 0.6rem 0;
+              line-height: 1;
+              text-shadow: 0 4px 24px rgba(0,0,0,0.35);
+              animation: titleRise 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+          }
 
-        if intro_anim is not None:
-            st_lottie(
-                intro_anim,
-                height=280,
-                loop=False,
-                speed=1.1,
-                key="intro_lottie",
-            )
-        else:
-            bar = st.progress(0)
-            for i in range(100):
-                time.sleep(0.018)
-                bar.progress(i + 1)
+          .intro-sub {
+              font-family: 'Inter', sans-serif;
+              color: rgba(255,255,255,0.94);
+              font-size: 1.15rem;
+              font-weight: 500;
+              max-width: 560px;
+              margin-bottom: 1.8rem;
+              animation: subtitleFade 1.6s ease-out 0.5s both;
+          }
 
-    time.sleep(0.6)
-    placeholder.empty()
+          .intro-dots {
+              display: flex;
+              gap: 0.6rem;
+              animation: subtitleFade 1.4s ease-out 1.0s both;
+          }
+
+          .intro-dots span {
+              width: 11px;
+              height: 11px;
+              border-radius: 50%;
+              background: rgba(255,255,255,0.85);
+              animation: dotPulse 1.4s ease-in-out infinite;
+          }
+
+          .intro-dots span:nth-child(1) { animation-delay: 0s; }
+          .intro-dots span:nth-child(2) { animation-delay: 0.2s; }
+          .intro-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+          @media (max-width: 640px) {
+              .intro-title  { font-size: 2.6rem; }
+              .intro-sub    { font-size: 0.95rem; padding: 0 1rem; }
+              .intro-ball   { font-size: 4rem; }
+          }
+        </style>
+
+        <div class="intro-overlay">
+            <div class="intro-ball">🏀</div>
+            <div class="intro-chip">March Madness Forecast</div>
+            <h1 class="intro-title">SIMULATING THE BRACKET</h1>
+            <div class="intro-sub">Running 4,000 posterior simulations of the tournament&hellip;</div>
+            <div class="intro-dots"><span></span><span></span><span></span></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Match the overlay total animation duration (4.0s)
+    time.sleep(4.0)
     st.session_state.intro_played = True
+    st.rerun()
 
 
 # ============================================================
@@ -246,15 +312,20 @@ CSS = """
   h2 { font-weight: 700 !important; }
   h3 { font-weight: 650 !important; }
 
-  /* ========== Hero entrance animations ========== */
+  /* ========== Hero entrance animations after intro ========== */
 
   @keyframes heroSlideDown {
-      from { transform: translateY(-30px); opacity: 0; }
+      from { transform: translateY(-50px); opacity: 0; }
       to   { transform: translateY(0); opacity: 1; }
   }
 
   @keyframes fadeInUp {
-      from { opacity: 0; transform: translateY(10px); }
+      from { opacity: 0; transform: translateY(15px); }
+      to   { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes contentRiseUp {
+      from { opacity: 0; transform: translateY(30px); }
       to   { opacity: 1; transform: translateY(0); }
   }
 
@@ -266,7 +337,7 @@ CSS = """
       box-shadow: 0 12px 42px -14px rgba(255, 107, 26, 0.45);
       position: relative;
       overflow: hidden;
-      animation: heroSlideDown 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      animation: heroSlideDown 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .hero::after {
@@ -290,6 +361,10 @@ CSS = """
       text-shadow: 0 2px 14px rgba(0,0,0,0.30);
       position: relative;
       z-index: 1;
+  }
+
+  .stTabs {
+      animation: contentRiseUp 0.9s ease-out 0.5s both;
   }
 
   .hero-card {

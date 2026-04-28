@@ -8,5 +8,4 @@ pymc
 arviz
 xarray
 netcdf4
-streamlit-lottie
-requests
+requests     
