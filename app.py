@@ -1477,6 +1477,41 @@ with tab4:
 with tab5:
     st.markdown(
         """
+        <style>
+          @keyframes funPulse {
+              0%   { transform: translateX(0); opacity: 0.92; }
+              50%  { transform: translateX(8px); opacity: 1; }
+              100% { transform: translateX(0); opacity: 0.92; }
+          }
+
+          .fun-warning {
+              margin-top: 1.4rem;
+              padding: 1rem 1.2rem;
+              border-radius: 16px;
+              border: 1px solid rgba(255, 107, 26, 0.35);
+              background: linear-gradient(
+                  135deg,
+                  rgba(255, 107, 26, 0.16),
+                  rgba(24, 95, 165, 0.08)
+              );
+              box-shadow: 0 10px 28px rgba(255, 107, 26, 0.10);
+              animation: funPulse 2.4s ease-in-out infinite;
+          }
+
+          .fun-warning-title {
+              font-size: 1.1rem;
+              font-weight: 850;
+              color: var(--text-strong);
+              margin-bottom: 0.25rem;
+          }
+
+          .fun-warning-text {
+              font-size: 0.95rem;
+              color: var(--muted);
+              line-height: 1.45;
+          }
+        </style>
+
         ### About this dashboard
 
         This dashboard uses past game data to estimate team strength and simulate future matchups.
@@ -1484,6 +1519,12 @@ with tab5:
         Each team gets an estimated offense score and defense score. These are combined into a Net rating,
         which is used to compare teams and forecast possible game outcomes.
 
-        The predictions are for entertainment and exploration. They are not guarantees.
-        """
+        <div class="fun-warning">
+            <div class="fun-warning-title">🎲 Just for fun</div>
+            <div class="fun-warning-text">
+                These predictions are for entertainment and exploration only — not guarantees.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
