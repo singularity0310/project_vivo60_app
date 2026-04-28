@@ -289,11 +289,8 @@ with tab1:
 
 
 with tab2:
-    st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="muted">Filter the posterior team ratings by conference. '
-        'Net rating is offense plus defense; larger values indicate stronger teams.</div>',
-        unsafe_allow_html=True,
+        "Filter posterior team ratings by conference. Net rating is offense plus defense; larger values indicate stronger teams."
     )
 
     confs_show = st.multiselect(
@@ -302,16 +299,140 @@ with tab2:
         default=conferences,
     )
 
-    view = df[df["Conference"].isin(confs_show)]
-    st.dataframe(view, use_container_width=True, height=620)
+    view = df[df["Conference"].isin(confs_show)].copy()
 
-    csv = view.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download filtered ratings",
-        data=csv,
-        file_name="team_ratings.csv",
-        mime="text/csv",
-    )
+    if view.empty:
+        st.warning("No teams selected. Please choose at least one conference.")
+    else:
+        # -------------------------
+        # Summary cards
+        # -------------------------
+        st.markdown("### Rating summary")
+
+        view["Uncertainty"] = view["Net 95%"] - view["Net 5%"]
+
+        top_team = view.sort_values("Net", ascending=False).iloc[0]
+        best_off = view.sort_values("Offense", ascending=False).iloc[0]
+        best_def = view.sort_values("Defense", ascending=False).iloc[0]
+        most_uncertain = view.sort_values("Uncertainty", ascending=False).iloc[0]
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            "Top net rating",
+            top_team["Team"],
+            f"{top_team['Net']:+.2f}"
+        )
+
+        c2.metric(
+            "Best offense",
+            best_off["Team"],
+            f"{best_off['Offense']:+.2f}"
+        )
+
+        c3.metric(
+            "Best defense",
+            best_def["Team"],
+            f"{best_def['Defense']:+.2f}"
+        )
+
+        c4.metric(
+            "Most uncertain",
+            most_uncertain["Team"],
+            f"width {most_uncertain['Uncertainty']:.2f}"
+        )
+
+        # -------------------------
+        # Top-N chart
+        # -------------------------
+        st.markdown("### Top teams by net rating")
+
+        top_n = st.slider(
+            "Number of teams to show",
+            min_value=5,
+            max_value=min(50, len(view)),
+            value=min(20, len(view)),
+            step=5,
+        )
+
+        plot_df = view.sort_values("Net", ascending=False).head(top_n)
+
+        fig = go.Figure()
+
+        fig.add_trace(
+            go.Bar(
+                x=plot_df["Net"],
+                y=plot_df["Team"],
+                orientation="h",
+                customdata=np.stack(
+                    [
+                        plot_df["Conference"],
+                        plot_df["Offense"],
+                        plot_df["Defense"],
+                        plot_df["Net 5%"],
+                        plot_df["Net 95%"],
+                    ],
+                    axis=-1,
+                ),
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    "Conference: %{customdata[0]}<br>"
+                    "Net: %{x:.2f}<br>"
+                    "Offense: %{customdata[1]:.2f}<br>"
+                    "Defense: %{customdata[2]:.2f}<br>"
+                    "90% interval: [%{customdata[3]:.2f}, %{customdata[4]:.2f}]"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+        fig.update_layout(
+            height=max(420, top_n * 24),
+            xaxis_title="Net rating",
+            yaxis_title="",
+            margin=dict(l=120, r=30, t=20, b=50),
+        )
+
+        fig.update_yaxes(autorange="reversed")
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # -------------------------
+        # Compact ranking table
+        # -------------------------
+        st.markdown("### Compact ranking")
+
+        compact = plot_df[["Team", "Conference", "Net"]].copy()
+        compact["Net"] = compact["Net"].round(2)
+
+        st.dataframe(
+            compact,
+            use_container_width=True,
+            height=360,
+            hide_index=True,
+        )
+
+        # -------------------------
+        # Optional full table
+        # -------------------------
+        with st.expander("View full rating table"):
+            full_view = view[
+                ["Team", "Conference", "Offense", "Defense", "Net", "Net 5%", "Net 95%"]
+            ].copy()
+
+            st.dataframe(
+                full_view,
+                use_container_width=True,
+                height=520,
+            )
+
+        csv = view.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "Download filtered ratings",
+            data=csv,
+            file_name="team_ratings.csv",
+            mime="text/csv",
+        )
 
 
 with tab3:
