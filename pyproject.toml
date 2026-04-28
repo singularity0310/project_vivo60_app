@@ -19,7 +19,9 @@ dependencies = [
     "plotly>=6.7.0",
     "pymc>=5.28.0",
     "pyyaml>=6.0.3",
+    "requests>=2.33.1",
     "scipy>=1.17.1",
     "seaborn>=0.13.2",
     "streamlit>=1.56.0",
+    "streamlit-lottie>=0.0.5",
 ]

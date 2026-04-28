@@ -12,13 +12,16 @@ Run:
 
 import html
 import json
+import time
 
 import arviz as az
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 import plotly.io as pio
+from streamlit_lottie import st_lottie
 
 # ============================================================
 # Page setup
@@ -72,6 +75,91 @@ pio.templates["mm"] = go.layout.Template(
 )
 
 pio.templates.default = "plotly+mm"
+
+
+# ============================================================
+# Intro animation (only on first load)
+# ============================================================
+
+@st.cache_data(show_spinner=False)
+def load_lottie_url(url: str):
+    """Fetch a Lottie animation JSON from a public URL."""
+    try:
+        r = requests.get(url, timeout=5)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+# Pick any Lottie URL you like from https://lottiefiles.com
+# Below is a basketball-themed animation that works well for an intro.
+# To swap: go to lottiefiles.com, find an animation, click "Lottie Animation URL".
+LOTTIE_URL = "https://lottie.host/4be0d36e-7a9e-4f3a-9b5e-3f8e7a1b9c5d/basketball.json"
+LOTTIE_FALLBACK = "https://assets10.lottiefiles.com/packages/lf20_jcikwtux.json"
+
+
+if "intro_played" not in st.session_state:
+    st.session_state.intro_played = False
+
+if not st.session_state.intro_played:
+    intro_anim = load_lottie_url(LOTTIE_URL) or load_lottie_url(LOTTIE_FALLBACK)
+
+    placeholder = st.empty()
+
+    with placeholder.container():
+        st.markdown(
+            """
+            <style>
+              @keyframes introFade {
+                  0%   { opacity: 0; }
+                  20%  { opacity: 1; }
+                  80%  { opacity: 1; }
+                  100% { opacity: 0; }
+              }
+              .intro-wrap {
+                  text-align: center;
+                  padding-top: 4rem;
+                  animation: introFade 2.6s ease-in-out both;
+              }
+              .intro-title {
+                  font-family: 'Bebas Neue', 'Inter', sans-serif;
+                  font-size: 2.3rem;
+                  letter-spacing: 0.05em;
+                  color: #FF6B1A;
+                  margin-bottom: 0.4rem;
+              }
+              .intro-subtitle {
+                  color: #7A8294;
+                  font-size: 1rem;
+                  font-weight: 500;
+              }
+            </style>
+            <div class="intro-wrap">
+                <div class="intro-title">NCAA BAYESIAN · M 2025</div>
+                <div class="intro-subtitle">Simulating 4,000 tournaments&hellip;</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if intro_anim is not None:
+            st_lottie(
+                intro_anim,
+                height=280,
+                loop=False,
+                speed=1.1,
+                key="intro_lottie",
+            )
+        else:
+            # Fallback: fake progress bar if Lottie can't be fetched
+            bar = st.progress(0)
+            for i in range(100):
+                time.sleep(0.018)
+                bar.progress(i + 1)
+
+    time.sleep(0.6)
+    placeholder.empty()
+    st.session_state.intro_played = True
 
 
 # ============================================================
@@ -155,6 +243,24 @@ CSS = """
   h2 { font-weight: 700 !important; }
   h3 { font-weight: 650 !important; }
 
+  /* ========== Hero entrance animations ========== */
+
+  @keyframes heroSlideDown {
+      from { transform: translateY(-30px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+  }
+
+  @keyframes chipPop {
+      0%   { opacity: 0; transform: scale(0.7); }
+      60%  { opacity: 1; transform: scale(1.08); }
+      100% { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+  }
+
   .hero {
       background: linear-gradient(135deg, #FF6B1A 0%, #D85A30 48%, #185FA5 100%);
       border-radius: 16px;
@@ -163,6 +269,7 @@ CSS = """
       box-shadow: 0 12px 42px -14px rgba(255, 107, 26, 0.45);
       position: relative;
       overflow: hidden;
+      animation: heroSlideDown 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 
   .hero::after {
@@ -189,6 +296,7 @@ CSS = """
       border: 1px solid rgba(255,255,255,0.30);
       position: relative;
       z-index: 1;
+      animation: chipPop 0.6s ease-out 0.35s both;
   }
 
   .hero-title {
@@ -212,6 +320,7 @@ CSS = """
       max-width: 860px;
       position: relative;
       z-index: 1;
+      animation: fadeInUp 0.8s ease-out 0.6s both;
   }
 
   .muted {
