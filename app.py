@@ -329,13 +329,28 @@ logo_map = {
     "Citadel": "https://a.espncdn.com/i/teamlogos/ncaa/500/2643.png",
 }
 
+
 def team_initials(team):
     words = str(team).replace("&", " ").replace("-", " ").split()
+
     if len(words) == 0:
         return "?"
+
     if len(words) == 1:
         return words[0][:2].upper()
+
     return "".join(w[0] for w in words[:2]).upper()
+
+
+def logo_html(team, centered=False):
+    url = logo_map.get(team)
+
+    if url is not None:
+        klass = "team-logo-center" if centered else "team-logo"
+        return f'<img class="{klass}" src="{url}" alt="{team} logo">'
+
+    badge_class = "logo-badge-center" if centered else "logo-badge"
+    return f'<div class="{badge_class}">{team_initials(team)}</div>'
 
 
 
