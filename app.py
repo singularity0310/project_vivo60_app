@@ -1154,10 +1154,11 @@ with tab2:
     ]
 
     selected_cols = st.multiselect(
-        "Columns to include",
-        available_cols,
+        label="",
+        options=available_cols,
         default=["Rank", "Team", "Net"],
-    )
+        label_visibility="collapsed",
+        )
 
     if selected_cols:
         custom_table = view[selected_cols].copy()
