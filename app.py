@@ -1304,24 +1304,7 @@ with tab4:
         "Final":        "⭐ Championship game contenders",
         "Champion":     "🏆 Title contenders",
     }
-    
-    # Headline summary
-    favorite = bk.sort_values("p_champ", ascending=False).iloc[0]
-    n_realistic = int((bk.p_champ > 0.05).sum())
-    
-    st.markdown(
-        f"""
-        <div class="hero-card">
-            <div class="hero-card-title">🏆 Predicted bracket outcomes</div>
-            <div class="hero-card-subtitle">
-                <b>{favorite.team}</b> is the model's pick at <b>{favorite.p_champ:.1%}</b> to cut down the nets,
-                with <b>{n_realistic} teams</b> giving it a realistic shot (≥5%). 
-                Pick a round below to see who's most likely to reach it.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
     
     # ---- Round selector + top N slider ----
     sel_col, slider_col = st.columns([3, 2])
