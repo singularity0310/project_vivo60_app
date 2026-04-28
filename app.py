@@ -990,27 +990,50 @@ with tab1:
     st.markdown('<div class="section-rule"></div>', unsafe_allow_html=True)
 
     st.markdown("## Who looks dangerous?")
-    st.markdown(
-        '<div class="section-note">A quick look at the teams the model likes most — and least.</div>',
-        unsafe_allow_html=True,
-    )
 
     top10 = df.head(10).copy()
     bottom10 = df.tail(10).sort_values("Net", ascending=True).copy()
 
-    title_col, help_col = st.columns([0.23, 0.77], vertical_alignment="center")
-
-    with title_col:
-        st.markdown("### 🔥 Strongest teams")
-
-    with help_col:
-        st.caption(
-            "ⓘ",
-            help=(
-                "Stronger teams have higher Net ratings. "
-                "Net combines a team's estimated offense and defense into one overall strength score."
-                ),
-                )
+    # Strongest teams title + small help icon
+    st.markdown(
+        """
+        <div style="
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            margin-top: 0.5rem;
+            margin-bottom: 0.8rem;
+        ">
+            <span style="font-size: 1.65rem;">🔥</span>
+            <span style="
+                font-size: 1.75rem;
+                font-weight: 800;
+                color: var(--text-strong);
+                letter-spacing: -0.02em;
+            ">
+                Strongest teams
+            </span>
+            <span title="Stronger teams have higher Net ratings. Net combines a team's estimated offense and defense into one overall strength score."
+                  style="
+                      display: inline-flex;
+                      align-items: center;
+                      justify-content: center;
+                      width: 20px;
+                      height: 20px;
+                      border-radius: 50%;
+                      border: 1.5px solid var(--muted);
+                      color: var(--muted);
+                      font-size: 0.85rem;
+                      font-weight: 800;
+                      cursor: help;
+                      margin-left: 0.25rem;
+                  ">
+                ?
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     top3 = top10.head(3)
     top_cols = st.columns(3)
@@ -1021,8 +1044,6 @@ with tab1:
         with top_cols[i]:
             show_top_team_card(row, subtitle=subtitles[i])
 
-    st.markdown("#### More teams near the top")
-
     other_top = top10.iloc[3:10].reset_index(drop=True)
     small_cols = st.columns(7)
 
@@ -1032,13 +1053,12 @@ with tab1:
 
     st.markdown("---")
 
-    st.markdown("### ❄️ Long shots")
+    st.markdown("### ❄️ Weakest teams")
     weak_cols = st.columns(5)
 
     for i, (_, row) in enumerate(bottom10.iterrows()):
         with weak_cols[i % 5]:
             show_weak_card(row)
-
 
 # ============================================================
 # Tab 2: Team ratings
