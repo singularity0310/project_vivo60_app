@@ -562,5 +562,3 @@ with tab3:
         'noise.</div>',
         unsafe_allow_html=True,
     )
-
-    c
