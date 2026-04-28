@@ -1514,10 +1514,12 @@ with tab5:
 
         ### About this dashboard
 
-        This dashboard uses past game data to estimate team strength and simulate future matchups.
-
+        This dashboard uses 2025 game data to estimate team strength and simulate future matchups.
+        
         Each team gets an estimated offense score and defense score. These are combined into a Net rating,
         which is used to compare teams and forecast possible game outcomes.
+        
+        This app was built with AI assistance for coding, debugging, and dashboard design.
 
         <div class="fun-warning">
             <div class="fun-warning-title">🎲 Just for fun</div>
